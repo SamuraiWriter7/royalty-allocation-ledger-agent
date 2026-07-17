@@ -1,0 +1,953 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SamuraiWriter7/royalty-allocation-ledger-agent/schemas/dispute-holdback-ledger.schema.json",
+  "title": "Dispute and Holdback Ledger",
+  "description": "An audit-ready ledger for isolating disputed allocation amounts, preserving unaffected amounts, recording partial releases, and maintaining human-controlled holdback decisions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "holdback_ledger_id",
+    "created_at",
+    "generated_by",
+    "source_context",
+    "currency",
+    "dispute_cases",
+    "holdback_entries",
+    "totals",
+    "review_control",
+    "approval",
+    "ledger_status",
+    "safety_boundary"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.4.0"
+    },
+    "holdback_ledger_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generated_by": {
+      "$ref": "#/$defs/generatedBy"
+    },
+    "source_context": {
+      "$ref": "#/$defs/sourceContext"
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "dispute_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/disputeCase"
+      }
+    },
+    "holdback_entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/holdbackEntry"
+      }
+    },
+    "totals": {
+      "$ref": "#/$defs/holdbackTotals"
+    },
+    "review_control": {
+      "$ref": "#/$defs/reviewControl"
+    },
+    "approval": {
+      "$ref": "#/$defs/humanApproval"
+    },
+    "ledger_status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "pending_human_approval",
+        "approved",
+        "rejected",
+        "superseded"
+      ]
+    },
+    "supersedes_holdback_ledger_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "safety_boundary": {
+      "$ref": "#/$defs/safetyBoundary"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ledger_status": {
+            "const": "superseded"
+          }
+        },
+        "required": [
+          "ledger_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "supersedes_holdback_ledger_id"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "generatedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_id",
+        "agent_type",
+        "generation_mode"
+      ],
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "agent_type": {
+          "type": "string",
+          "const": "royalty-allocation-ledger-agent"
+        },
+        "generation_mode": {
+          "type": "string",
+          "enum": [
+            "draft_only",
+            "human_supervised"
+          ]
+        },
+        "model_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "sourceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allocation_plan_id",
+        "allocation_policy_id",
+        "source_records"
+      ],
+      "properties": {
+        "allocation_plan_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "allocation_policy_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "source_records": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/sourceRecord"
+          }
+        }
+      }
+    },
+    "sourceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type",
+        "record_id",
+        "verification_status"
+      ],
+      "properties": {
+        "record_type": {
+          "type": "string",
+          "enum": [
+            "multi_beneficiary_allocation_plan",
+            "allocation_policy",
+            "dispute_record",
+            "contribution_weight_resolution",
+            "origin_record",
+            "contribution_attribution",
+            "license_constraint",
+            "identity_record",
+            "review_receipt",
+            "other"
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "verification_status": {
+          "type": "string",
+          "const": "verified"
+        },
+        "uri": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "disputeCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dispute_id",
+        "affected_beneficiary_id",
+        "affected_allocation_ref",
+        "dispute_scope",
+        "claimants",
+        "status",
+        "evidence_refs",
+        "explanation"
+      ],
+      "properties": {
+        "dispute_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9._:-]+$"
+        },
+        "affected_beneficiary_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "affected_allocation_ref": {
+          "$ref": "#/$defs/affectedAllocationReference"
+        },
+        "dispute_scope": {
+          "$ref": "#/$defs/disputeScope"
+        },
+        "claimants": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/claimant"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "evidence_requested",
+            "under_review",
+            "partially_resolved",
+            "resolved",
+            "rejected",
+            "expired"
+          ]
+        },
+        "opened_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "review_deadline": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "evidence_request": {
+          "$ref": "#/$defs/evidenceRequest"
+        },
+        "resolution": {
+          "$ref": "#/$defs/disputeResolution"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidenceReference"
+          }
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "evidence_requested"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "evidence_request"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "partially_resolved",
+                  "resolved",
+                  "rejected"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "resolution"
+            ]
+          }
+        }
+      ]
+    },
+    "affectedAllocationReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_id",
+        "beneficiary_id",
+        "original_reserved_amount"
+      ],
+      "properties": {
+        "plan_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "beneficiary_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "original_reserved_amount": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "disputeScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope_type",
+        "disputed_amount",
+        "undisputed_amount"
+      ],
+      "properties": {
+        "scope_type": {
+          "type": "string",
+          "enum": [
+            "full_allocation",
+            "partial_allocation",
+            "origin_claim",
+            "contribution_share",
+            "calculation_error",
+            "license_constraint",
+            "beneficiary_identity",
+            "duplicate_claim",
+            "other"
+          ]
+        },
+        "disputed_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "undisputed_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      }
+    },
+    "claimant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claimant_id",
+        "claimant_role",
+        "claim_record_id"
+      ],
+      "properties": {
+        "claimant_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "claimant_role": {
+          "type": "string",
+          "enum": [
+            "beneficiary",
+            "origin_claimant",
+            "derivative_claimant",
+            "license_holder",
+            "auditor",
+            "authorized_representative",
+            "other"
+          ]
+        },
+        "claim_record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "evidenceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_id",
+        "requested_items",
+        "requested_at",
+        "status"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "requested_items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "requested_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "response_deadline": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "partially_received",
+            "received",
+            "closed"
+          ]
+        }
+      }
+    },
+    "disputeResolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resolution_type",
+        "released_amount",
+        "continued_hold_amount",
+        "returned_to_pool_amount",
+        "resolution_receipt_id",
+        "authorized_by",
+        "resolved_at",
+        "explanation"
+      ],
+      "properties": {
+        "resolution_type": {
+          "type": "string",
+          "enum": [
+            "partial_release",
+            "full_release",
+            "continue_hold",
+            "return_to_pool",
+            "claim_rejected",
+            "allocation_corrected",
+            "other"
+          ]
+        },
+        "released_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "continued_hold_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "returned_to_pool_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "resolution_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "authorized_by": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "resolved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        }
+      }
+    },
+    "holdbackEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "holdback_id",
+        "dispute_id",
+        "beneficiary_id",
+        "source_plan_id",
+        "source_reserved_amount",
+        "correction_adjustment",
+        "effective_holdback_amount",
+        "released_amount",
+        "current_held_amount",
+        "returned_to_pool_amount",
+        "status",
+        "release_events",
+        "evidence_refs",
+        "explanation"
+      ],
+      "properties": {
+        "holdback_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9._:-]+$"
+        },
+        "dispute_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "beneficiary_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "source_plan_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "source_reserved_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "correction_adjustment": {
+          "type": "number"
+        },
+        "effective_holdback_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "released_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "current_held_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "returned_to_pool_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active_hold",
+            "partial_release",
+            "fully_released",
+            "returned_to_pool",
+            "superseded"
+          ]
+        },
+        "release_events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/releaseEvent"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidenceReference"
+          }
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        }
+      }
+    },
+    "releaseEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "event_type",
+        "amount",
+        "destination",
+        "authorized_by",
+        "approval_receipt_id",
+        "occurred_at",
+        "evidence_refs"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "partial_release",
+            "full_release",
+            "return_to_pool",
+            "correction"
+          ]
+        },
+        "amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "destination": {
+          "type": "string",
+          "enum": [
+            "beneficiary_allocation",
+            "unallocated_pool",
+            "replacement_ledger"
+          ]
+        },
+        "authorized_by": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approval_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidenceReference"
+          }
+        }
+      }
+    },
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type",
+        "record_id",
+        "relation",
+        "verified"
+      ],
+      "properties": {
+        "record_type": {
+          "type": "string",
+          "enum": [
+            "multi_beneficiary_allocation_plan",
+            "allocation_policy",
+            "dispute_record",
+            "contribution_weight_resolution",
+            "origin_record",
+            "contribution_attribution",
+            "license_constraint",
+            "identity_record",
+            "review_receipt",
+            "other"
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "relation": {
+          "type": "string",
+          "enum": [
+            "supports_dispute",
+            "supports_scope",
+            "supports_hold",
+            "supports_release",
+            "supports_return_to_pool",
+            "supports_correction",
+            "supports_identity",
+            "supports_policy",
+            "other"
+          ]
+        },
+        "verified": {
+          "type": "boolean",
+          "const": true
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "holdbackTotals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_reserved_total",
+        "correction_adjustment_total",
+        "effective_holdback_total",
+        "released_to_allocation_total",
+        "current_held_total",
+        "returned_to_pool_total",
+        "affected_beneficiary_count",
+        "open_dispute_count",
+        "resolved_dispute_count"
+      ],
+      "properties": {
+        "source_reserved_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "correction_adjustment_total": {
+          "type": "number"
+        },
+        "effective_holdback_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "released_to_allocation_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "current_held_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "returned_to_pool_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "affected_beneficiary_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "open_dispute_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resolved_dispute_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "reviewControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "partial_processing_allowed",
+        "unaffected_allocations_may_proceed",
+        "automatic_dispute_resolution_prohibited",
+        "review_owner_id"
+      ],
+      "properties": {
+        "partial_processing_allowed": {
+          "type": "boolean",
+          "const": true
+        },
+        "unaffected_allocations_may_proceed": {
+          "type": "boolean",
+          "const": true
+        },
+        "automatic_dispute_resolution_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "review_owner_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "default_review_deadline": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "humanApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "human_review_required",
+        "status"
+      ],
+      "properties": {
+        "human_review_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "approver_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approval_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "rejection_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "approver_id",
+              "approval_receipt_id",
+              "approved_at"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "rejected"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "rejection_reason"
+            ]
+          }
+        }
+      ]
+    },
+    "safetyBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_required",
+        "dispute_scope_required",
+        "global_freeze_without_scope_prohibited",
+        "automatic_dispute_resolution_prohibited",
+        "held_amount_redistribution_without_approval_prohibited",
+        "autonomous_payment_prohibited",
+        "human_approval_required"
+      ],
+      "properties": {
+        "evidence_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "dispute_scope_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "global_freeze_without_scope_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "automatic_dispute_resolution_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "held_amount_redistribution_without_approval_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "autonomous_payment_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "human_approval_required": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    }
+  }
+}
