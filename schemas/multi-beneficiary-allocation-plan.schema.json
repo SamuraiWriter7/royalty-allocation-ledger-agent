@@ -1,6 +1,3 @@
-## `schemas/multi-beneficiary-allocation-plan.schema.json`
-
-```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/SamuraiWriter7/royalty-allocation-ledger-agent/schemas/multi-beneficiary-allocation-plan.schema.json",
