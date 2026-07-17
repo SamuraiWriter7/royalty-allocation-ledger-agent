@@ -1,0 +1,184 @@
+schema_version: "0.1.0"
+
+ledger_id: "allocation-ledger-2026-0001"
+
+created_at: "2026-07-18T07:30:00+09:00"
+
+generated_by:
+  agent_id: "royalty-allocation-agent-001"
+  agent_type: "royalty-allocation-ledger-agent"
+  generation_mode: "human_supervised"
+  model_reference: "allocation-ledger-draft-engine"
+
+source_context:
+  allocation_readiness_record_id: "allocation-readiness-2026-0001"
+  allocation_policy_id: "default-origin-derivative-policy-v1"
+
+  source_records:
+    - record_type: "origin_record"
+      record_id: "origin-record-001"
+      verification_status: "verified"
+
+    - record_type: "contribution_attribution"
+      record_id: "contribution-record-014"
+      verification_status: "verified"
+
+    - record_type: "allocation_readiness"
+      record_id: "allocation-readiness-2026-0001"
+      verification_status: "verified"
+
+    - record_type: "allocation_policy"
+      record_id: "default-origin-derivative-policy-v1"
+      verification_status: "verified"
+
+    - record_type: "dispute_record"
+      record_id: "dispute-record-003"
+      verification_status: "verified"
+
+royalty_pool:
+  pool_id: "royalty-pool-2026-0001"
+  currency: "JPY"
+  gross_amount: 100000
+  distributable_amount: 100000
+  excluded_amount: 0
+
+beneficiaries:
+  - beneficiary_id: "person-a"
+    beneficiary_type: "human"
+    display_name: "Origin Contributor A"
+    structural_role: "origin"
+
+    gross_allocation: 30000
+    payable_amount: 30000
+    held_amount: 0
+
+    allocation_status: "payable"
+    approval_status: "pending"
+
+    evidence_refs:
+      - record_type: "origin_record"
+        record_id: "origin-record-001"
+        relation: "supports_origin"
+        verified: true
+        description: "Verified record identifying the beneficiary as an origin contributor."
+
+      - record_type: "allocation_policy"
+        record_id: "default-origin-derivative-policy-v1"
+        relation: "supports_policy"
+        verified: true
+        description: "Policy authorizing an origin allocation."
+
+    explanation: >-
+      The allocation is based on a verified origin record and the applicable
+      allocation policy. No dispute or license restriction currently applies.
+
+  - beneficiary_id: "person-b"
+    beneficiary_type: "human"
+    display_name: "Derivative Contributor B"
+    structural_role: "derivative"
+
+    gross_allocation: 20000
+    payable_amount: 15000
+    held_amount: 5000
+
+    allocation_status: "partially_held"
+    approval_status: "pending"
+
+    evidence_refs:
+      - record_type: "contribution_attribution"
+        record_id: "contribution-record-014"
+        relation: "supports_contribution"
+        verified: true
+        description: "Verified derivative contribution attribution."
+
+      - record_type: "dispute_record"
+        record_id: "dispute-record-003"
+        relation: "supports_hold"
+        verified: true
+        description: "The disputed portion must remain held until review is completed."
+
+    hold_reasons:
+      - reason_code: "unresolved_dispute"
+        description: >-
+          Five thousand JPY is held because a portion of the derivative
+          contribution remains under review.
+        related_record_id: "dispute-record-003"
+
+    explanation: >-
+      The undisputed portion remains payable. Only the amount affected by the
+      unresolved dispute is held.
+
+  - beneficiary_id: "person-c"
+    beneficiary_type: "human"
+    display_name: "Supporting Contributor C"
+    structural_role: "supporting_contributor"
+
+    gross_allocation: 49000
+    payable_amount: 49000
+    held_amount: 0
+
+    allocation_status: "payable"
+    approval_status: "pending"
+
+    evidence_refs:
+      - record_type: "contribution_attribution"
+        record_id: "contribution-record-014"
+        relation: "supports_contribution"
+        verified: true
+        description: "Verified supporting contribution evidence."
+
+      - record_type: "allocation_policy"
+        record_id: "default-origin-derivative-policy-v1"
+        relation: "supports_policy"
+        verified: true
+        description: "The allocation follows the currently selected policy."
+
+    explanation: >-
+      The beneficiary has verified supporting contribution evidence and no
+      active hold condition.
+
+  - beneficiary_id: "community-fund-001"
+    beneficiary_type: "community_fund"
+    display_name: "Shared Origin Community Fund"
+    structural_role: "community_fund"
+
+    gross_allocation: 1000
+    payable_amount: 1000
+    held_amount: 0
+
+    allocation_status: "payable"
+    approval_status: "pending"
+
+    evidence_refs:
+      - record_type: "allocation_policy"
+        record_id: "default-origin-derivative-policy-v1"
+        relation: "supports_policy"
+        verified: true
+        description: "The policy assigns one percent to the community fund."
+
+    explanation: >-
+      This allocation is explicitly defined by the verified allocation policy.
+
+totals:
+  gross_allocated: 100000
+  payable_total: 95000
+  held_total: 5000
+  unallocated_total: 0
+  rounding_adjustment: 0
+
+approval:
+  human_review_required: true
+  status: "pending"
+
+ledger_status: "pending_human_approval"
+
+notes:
+  - "This ledger is a draft allocation record and is not a payment instruction."
+  - "The held amount must not be included in any settlement request."
+  - "Final approval must be issued by an authorized human reviewer."
+
+safety_boundary:
+  evidence_required: true
+  rights_creation_prohibited: true
+  autonomous_payment_prohibited: true
+  human_approval_required: true
