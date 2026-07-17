@@ -23,5 +23,8 @@ jobs:
       - name: Install dependencies
         run: pip install jsonschema PyYAML
 
-      - name: Validate schemas and examples
-        run: python scripts/validate_examples.py
+      - name: Validate v0.1 allocation ledger
+        run: python scripts/validate_allocation_ledger.py
+
+      - name: Validate v0.2 contribution weights
+        run: python scripts/validate_contribution_weights.py
