@@ -1,0 +1,245 @@
+schema_version: "0.2.0"
+
+resolution_id: "contribution-weight-resolution-2026-0001"
+
+created_at: "2026-07-18T08:00:00+09:00"
+
+generated_by:
+  agent_id: "royalty-allocation-agent-001"
+  agent_type: "royalty-allocation-ledger-agent"
+  generation_mode: "human_supervised"
+  model_reference: "contribution-weight-resolution-engine"
+
+source_context:
+  allocation_readiness_record_id: "allocation-readiness-2026-0001"
+  allocation_policy_id: "default-contribution-weight-policy-v0.2"
+
+  source_records:
+    - record_type: "origin_record"
+      record_id: "origin-record-001"
+      verification_status: "verified"
+
+    - record_type: "contribution_attribution"
+      record_id: "contribution-record-014"
+      verification_status: "verified"
+
+    - record_type: "contribution_attribution"
+      record_id: "contribution-record-015"
+      verification_status: "verified"
+
+    - record_type: "allocation_readiness"
+      record_id: "allocation-readiness-2026-0001"
+      verification_status: "verified"
+
+    - record_type: "allocation_policy"
+      record_id: "default-contribution-weight-policy-v0.2"
+      verification_status: "verified"
+
+    - record_type: "dispute_record"
+      record_id: "dispute-record-003"
+      verification_status: "verified"
+
+resolution_method:
+  method: "policy_weighted_score"
+  normalization_target: 1
+  precision: 6
+  held_weight_treatment: "reserve_in_normalization"
+  description: >-
+    Verified contribution scores are multiplied by policy-defined factors.
+    Included and held weights are normalized together so that disputed shares
+    remain reserved rather than being redistributed.
+
+beneficiaries:
+  - beneficiary_id: "person-a"
+    beneficiary_type: "human"
+    display_name: "Origin Contributor A"
+    structural_role: "origin"
+
+    attribution_refs:
+      - "origin-record-001"
+
+    components:
+      - component_id: "origin-component-a"
+        component_type: "origin"
+        raw_score: 1
+        policy_multiplier: 1.5
+        weighted_score: 1.5
+
+        evidence_refs:
+          - record_type: "origin_record"
+            record_id: "origin-record-001"
+            relation: "supports_component"
+            verified: true
+            description: "Verified evidence identifying person-a as an origin contributor."
+
+        description: "Origin contribution component."
+
+    component_total: 1.5
+
+    adjustments: []
+
+    adjusted_score: 1.5
+    normalized_weight: 0.3
+    confidence_score: 0.98
+    resolution_status: "included"
+
+    evidence_refs:
+      - record_type: "origin_record"
+        record_id: "origin-record-001"
+        relation: "supports_attribution"
+        verified: true
+        description: "Verified origin attribution."
+
+      - record_type: "allocation_policy"
+        record_id: "default-contribution-weight-policy-v0.2"
+        relation: "supports_policy"
+        verified: true
+        description: "Policy defining the origin multiplier."
+
+    explanation: >-
+      Person A has a verified origin attribution. The verified raw score of
+      1.0 is multiplied by the policy factor of 1.5, producing an adjusted
+      score of 1.5 and a normalized provisional weight of 0.30.
+
+  - beneficiary_id: "person-b"
+    beneficiary_type: "human"
+    display_name: "Derivative Contributor B"
+    structural_role: "derivative"
+
+    attribution_refs:
+      - "contribution-record-014"
+
+    components:
+      - component_id: "derivative-component-b"
+        component_type: "derivative"
+        raw_score: 1
+        policy_multiplier: 1
+        weighted_score: 1
+
+        evidence_refs:
+          - record_type: "contribution_attribution"
+            record_id: "contribution-record-014"
+            relation: "supports_component"
+            verified: true
+            description: "Verified derivative contribution attribution."
+
+        description: "Derivative contribution component."
+
+    component_total: 1
+
+    adjustments: []
+
+    adjusted_score: 1
+    normalized_weight: 0.2
+    confidence_score: 0.84
+    resolution_status: "held_for_review"
+
+    hold_reasons:
+      - reason_code: "unresolved_dispute"
+        description: >-
+          The contribution attribution is verified, but the corresponding
+          allocation remains subject to a limited dispute.
+        related_record_id: "dispute-record-003"
+
+    evidence_refs:
+      - record_type: "contribution_attribution"
+        record_id: "contribution-record-014"
+        relation: "supports_attribution"
+        verified: true
+        description: "Verified derivative attribution."
+
+      - record_type: "dispute_record"
+        record_id: "dispute-record-003"
+        relation: "supports_hold"
+        verified: true
+        description: "Verified dispute record requiring the weight to remain reserved."
+
+      - record_type: "allocation_policy"
+        record_id: "default-contribution-weight-policy-v0.2"
+        relation: "supports_policy"
+        verified: true
+        description: "Policy requires disputed weights to remain reserved."
+
+    explanation: >-
+      Person B retains a provisional weight of 0.20 because the attribution
+      itself is verified. The weight is reserved for review and must not be
+      redistributed or converted into a payable amount until the dispute is
+      resolved.
+
+  - beneficiary_id: "person-c"
+    beneficiary_type: "human"
+    display_name: "Supporting Contributor C"
+    structural_role: "supporting_contributor"
+
+    attribution_refs:
+      - "contribution-record-015"
+
+    components:
+      - component_id: "support-component-c"
+        component_type: "supporting_contribution"
+        raw_score: 2.5
+        policy_multiplier: 1
+        weighted_score: 2.5
+
+        evidence_refs:
+          - record_type: "contribution_attribution"
+            record_id: "contribution-record-015"
+            relation: "supports_component"
+            verified: true
+            description: "Verified supporting contribution evidence."
+
+        description: "Supporting contribution component."
+
+    component_total: 2.5
+
+    adjustments: []
+
+    adjusted_score: 2.5
+    normalized_weight: 0.5
+    confidence_score: 0.94
+    resolution_status: "included"
+
+    evidence_refs:
+      - record_type: "contribution_attribution"
+        record_id: "contribution-record-015"
+        relation: "supports_attribution"
+        verified: true
+        description: "Verified supporting contribution attribution."
+
+      - record_type: "allocation_policy"
+        record_id: "default-contribution-weight-policy-v0.2"
+        relation: "supports_policy"
+        verified: true
+        description: "Policy permits proportional treatment of supporting contributions."
+
+    explanation: >-
+      Person C has a verified supporting contribution score of 2.5.
+      The resulting normalized provisional weight is 0.50.
+
+totals:
+  component_total: 5
+  adjustment_total: 0
+  adjusted_score_total: 5
+  normalized_weight_total: 1
+  normalization_residual: 0
+  included_count: 2
+  held_count: 1
+  excluded_count: 0
+
+approval:
+  human_review_required: true
+  status: "pending"
+
+resolution_status: "pending_human_approval"
+
+notes:
+  - "These weights are provisional and do not constitute payment amounts."
+  - "The held weight must remain reserved and must not be redistributed."
+  - "Fixed funds, platform fees, and minimum allocations are handled in v0.3."
+
+safety_boundary:
+  verified_attribution_required: true
+  attribution_rewrite_prohibited: true
+  rights_creation_prohibited: true
+  autonomous_payment_prohibited: true
+  human_approval_required: true
