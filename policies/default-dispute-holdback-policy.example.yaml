@@ -1,0 +1,66 @@
+policy_version: "0.4.0"
+
+policy_id: "default-dispute-holdback-policy-v0.4"
+
+title: "Default Dispute and Holdback Policy"
+
+description: >-
+  Example policy for isolating disputed allocation amounts while allowing
+  verified and unaffected allocations to continue. This policy does not
+  resolve disputes autonomously or authorize payment.
+
+scope_policy:
+  explicit_dispute_scope_required: true
+  allow_full_allocation_hold: true
+  allow_partial_allocation_hold: true
+  prohibit_unscoped_global_freeze: true
+
+partial_processing:
+  enabled: true
+  unaffected_allocations_may_proceed: true
+  undisputed_portion_may_be_released: true
+  disputed_portion_must_remain_held: true
+
+holdback_conservation:
+  required: true
+
+  formula: >-
+    effective_holdback_amount =
+    released_amount +
+    current_held_amount +
+    returned_to_pool_amount
+
+  correction_formula: >-
+    effective_holdback_amount =
+    source_reserved_amount +
+    correction_adjustment
+
+release_policy:
+  human_approval_required: true
+  verified_review_receipt_required: true
+  automatic_release_prohibited: true
+  release_is_payment_authorization: false
+
+return_to_pool_policy:
+  human_approval_required: true
+  verified_resolution_required: true
+  automatic_redistribution_prohibited: true
+
+review_policy:
+  review_deadline_required: true
+  evidence_request_supported: true
+  partial_resolution_supported: true
+  superseding_ledger_required_for_retroactive_correction: true
+
+prohibited_rules:
+  - "freeze_all_allocations_without_explicit_scope"
+  - "resolve_dispute_without_verified_evidence"
+  - "release_holdback_without_human_approval"
+  - "redistribute_held_amount_without_resolution"
+  - "treat_release_as_payment_execution"
+  - "delete_original_holdback_history"
+  - "overwrite_source_allocation_plan"
+  - "allow_agent_self_approval"
+
+approval:
+  human_review_required: true
