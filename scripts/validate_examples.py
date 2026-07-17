@@ -1494,4 +1494,17 @@ It does not:
 
 > Approved weights may be translated into amounts, but unresolved shares must
 > remain reserved and no payment may be executed from the allocation plan.
-````
+
+    if failed:
+        print("Validation failed.")
+        return 1
+
+    print(
+        "All Royalty Allocation Ledger Agent "
+        "examples are valid."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
