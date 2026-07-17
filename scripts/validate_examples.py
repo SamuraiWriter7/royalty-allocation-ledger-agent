@@ -90,8 +90,7 @@ def schema_errors(
 ) -> list[str]:
     return [
         (
-            f"{'.'.join(str(part) for part in error.absolute_path) "
-            f"or '<root>'}: {error.message}"
+            f"{'.'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
         )
         for error in sorted(
             validator.iter_errors(record),
