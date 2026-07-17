@@ -16,21 +16,21 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = (
     ROOT
     / "schemas"
-    / "contribution-weight-resolution.schema.json"
+    / "multi-beneficiary-allocation-plan.schema.json"
 )
 
 PASS_EXAMPLE = (
     ROOT
     / "examples"
     / "pass"
-    / "contribution-weight-resolution.example.yaml"
+    / "multi-beneficiary-allocation-plan.example.yaml"
 )
 
 FAIL_EXAMPLE = (
     ROOT
     / "examples"
     / "fail"
-    / "invalid-normalization.example.yaml"
+    / "invalid-proportional-allocation.example.yaml"
 )
 
 EPSILON = 0.000001
@@ -41,9 +41,7 @@ def load_json(path: Path) -> dict[str, Any]:
         data = json.load(handle)
 
     if not isinstance(data, dict):
-        raise ValueError(
-            f"{path}: root must be an object"
-        )
+        raise ValueError(f"{path}: root must be an object")
 
     return data
 
@@ -53,17 +51,12 @@ def load_yaml(path: Path) -> dict[str, Any]:
         data = yaml.safe_load(handle)
 
     if not isinstance(data, dict):
-        raise ValueError(
-            f"{path}: root must be an object"
-        )
+        raise ValueError(f"{path}: root must be an object")
 
     return data
 
 
-def close_enough(
-    left: float,
-    right: float,
-) -> bool:
+def close_enough(left: float, right: float) -> bool:
     return math.isclose(
         left,
         right,
@@ -72,9 +65,7 @@ def close_enough(
     )
 
 
-def duplicates(
-    values: list[str],
-) -> list[str]:
+def duplicate_values(values: list[str]) -> list[str]:
     return sorted(
         {
             value
@@ -90,481 +81,688 @@ def schema_errors(
 ) -> list[str]:
     return [
         (
-            f"{('.'.join(str(part) for part "
-            f"in error.absolute_path) or '<root>')}: "
+            f"{('.'.join(str(part) for part in error.absolute_path) or '<root>')}: "
             f"{error.message}"
         )
         for error in sorted(
             validator.iter_errors(record),
-            key=lambda item: list(
-                item.absolute_path
-            ),
+            key=lambda item: list(item.absolute_path),
         )
     ]
 
 
-def semantic_errors(
-    record: dict[str, Any],
-) -> list[str]:
+def semantic_errors(record: dict[str, Any]) -> list[str]:
     errors: list[str] = []
 
-    policy = record["policy_context"]
-    contributions = record["input_contributions"]
-    resolved = record["resolved_weights"]
+    source = record["source_resolution"]
+    pool = record["royalty_pool"]
+    policy_allocations = record["policy_allocations"]
+    proportional = record["proportional_distribution"]
+    totals = record["beneficiary_totals"]
+    reserve = record["reserve"]
     summary = record["integrity_summary"]
     review = record["human_review"]
     downstream = record["downstream_state"]
 
-    contribution_ids = [
-        item["contribution_id"]
-        for item in contributions
+    gross = float(pool["gross_amount"])
+    deductions = float(pool["deduction_amount"])
+    allocatable = float(pool["allocatable_amount"])
+
+    if not close_enough(gross - deductions, allocatable):
+        errors.append(
+            "royalty_pool.allocatable_amount must equal "
+            "gross_amount minus deduction_amount"
+        )
+
+    if proportional["weight_source_resolution_id"] != source["resolution_id"]:
+        errors.append(
+            "proportional_distribution.weight_source_resolution_id "
+            "must match source_resolution.resolution_id"
+        )
+
+    allocation_ids = [
+        item["allocation_id"]
+        for item in policy_allocations
     ]
 
-    duplicate_contributions = duplicates(
-        contribution_ids
+    duplicate_allocation_ids = duplicate_values(
+        allocation_ids
     )
 
-    if duplicate_contributions:
+    if duplicate_allocation_ids:
         errors.append(
-            "duplicate contribution_id values: "
-            + ", ".join(
-                duplicate_contributions
-            )
+            "duplicate policy allocation_id values: "
+            + ", ".join(duplicate_allocation_ids)
         )
 
-    duplicate_beneficiaries = duplicates(
-        [
-            item["beneficiary_id"]
-            for item in resolved
-        ]
+    priorities = [
+        int(item["priority"])
+        for item in policy_allocations
+    ]
+
+    duplicate_priorities = duplicate_values(
+        [str(value) for value in priorities]
     )
 
-    if duplicate_beneficiaries:
+    if duplicate_priorities:
         errors.append(
-            "duplicate resolved beneficiary_id values: "
-            + ", ".join(
-                duplicate_beneficiaries
-            )
+            "duplicate policy allocation priorities: "
+            + ", ".join(duplicate_priorities)
         )
 
-    minimum_confidence = float(
-        policy["minimum_evidence_confidence"]
+    current_remaining = allocatable
+    policy_total = 0.0
+
+    sorted_allocations = sorted(
+        policy_allocations,
+        key=lambda value: int(value["priority"]),
     )
 
-    input_by_id = {
-        item["contribution_id"]: item
-        for item in contributions
-    }
+    for index, item in enumerate(sorted_allocations):
+        method = item["method"]
+        base = float(item["calculation_base_amount"])
+        calculated = float(item["calculated_amount"])
 
-    for index, item in enumerate(contributions):
-        duplicate_factors = duplicates(
-            [
-                factor["factor_id"]
-                for factor in item["factor_scores"]
-            ]
-        )
-
-        if duplicate_factors:
-            errors.append(
-                f"input_contributions[{index}]: "
-                "duplicate factor_id values: "
-                + ", ".join(
-                    duplicate_factors
-                )
-            )
-
-        duplicate_adjustments = duplicates(
-            [
-                adjustment["adjustment_id"]
-                for adjustment in item["adjustments"]
-            ]
-        )
-
-        if duplicate_adjustments:
-            errors.append(
-                f"input_contributions[{index}]: "
-                "duplicate adjustment_id values: "
-                + ", ".join(
-                    duplicate_adjustments
-                )
-            )
-
-        calculated_base = 0.0
-
-        for factor_index, factor in enumerate(
-            item["factor_scores"]
-        ):
-            expected = (
-                float(factor["raw_score"])
-                * float(
-                    factor["policy_coefficient"]
-                )
-            )
-
-            declared = float(
-                factor["weighted_score"]
-            )
-
-            if not close_enough(
-                expected,
-                declared,
-            ):
+        if method == "fixed_amount":
+            if "fixed_amount" not in item:
                 errors.append(
-                    f"input_contributions[{index}]."
-                    f"factor_scores[{factor_index}]: "
-                    "weighted_score must equal "
-                    "raw_score multiplied by "
-                    "policy_coefficient"
+                    f"policy_allocations[{index}]: "
+                    "fixed_amount method requires fixed_amount"
+                )
+                expected = calculated
+            else:
+                expected = float(item["fixed_amount"])
+
+            if "rate" in item:
+                errors.append(
+                    f"policy_allocations[{index}]: "
+                    "fixed_amount method must not contain rate"
                 )
 
-            calculated_base += declared
-
-        declared_base = float(
-            item["declared_base_score"]
-        )
-
-        if not close_enough(
-            calculated_base,
-            declared_base,
-        ):
-            errors.append(
-                f"input_contributions[{index}]: "
-                "declared_base_score does not match "
-                "the sum of factor weighted scores"
-            )
-
-        calculated_adjustment = sum(
-            float(adjustment["signed_value"])
-            for adjustment in item["adjustments"]
-        )
-
-        declared_adjustment = float(
-            item["declared_adjustment_total"]
-        )
-
-        if not close_enough(
-            calculated_adjustment,
-            declared_adjustment,
-        ):
-            errors.append(
-                f"input_contributions[{index}]: "
-                "declared_adjustment_total does not "
-                "match adjustment values"
-            )
-
-        calculated_final = (
-            declared_base
-            + declared_adjustment
-        )
-
-        declared_final = float(
-            item["declared_final_score"]
-        )
-
-        if calculated_final < -EPSILON:
-            errors.append(
-                f"input_contributions[{index}]: "
-                "base score plus adjustments cannot "
-                "produce a negative final score"
-            )
-
-        if not close_enough(
-            calculated_final,
-            declared_final,
-        ):
-            errors.append(
-                f"input_contributions[{index}]: "
-                "declared_final_score must equal "
-                "declared_base_score plus "
-                "declared_adjustment_total"
-            )
-
-        if (
-            item["eligibility_status"]
-            == "eligible"
-            and float(
-                item["evidence_confidence"]
-            )
-            < minimum_confidence
-        ):
-            errors.append(
-                f"input_contributions[{index}]: "
-                "eligible contribution does not meet "
-                "minimum evidence confidence"
-            )
-
-    used_ids: list[str] = []
-    score_total = 0.0
-    weight_total = 0.0
-
-    for index, item in enumerate(resolved):
-        referenced: list[
-            dict[str, Any]
-        ] = []
-
-        for contribution_id in item[
-            "contribution_ids"
-        ]:
-            contribution = input_by_id.get(
-                contribution_id
-            )
-
-            if contribution is None:
+        elif method == "percentage_of_allocatable_pool":
+            if "rate" not in item:
                 errors.append(
-                    f"resolved_weights[{index}]: "
-                    "unknown contribution_id "
-                    f"{contribution_id}"
+                    f"policy_allocations[{index}]: "
+                    "percentage method requires rate"
                 )
-                continue
+                expected = calculated
+            else:
+                expected = allocatable * float(item["rate"])
 
-            referenced.append(contribution)
-            used_ids.append(contribution_id)
-
-            if (
-                contribution["beneficiary_id"]
-                != item["beneficiary_id"]
-            ):
+            if "fixed_amount" in item:
                 errors.append(
-                    f"resolved_weights[{index}]: "
-                    f"contribution {contribution_id} "
-                    "belongs to a different beneficiary"
+                    f"policy_allocations[{index}]: "
+                    "percentage method must not contain fixed_amount"
                 )
 
-        if not referenced:
-            continue
-
-        expected_score = sum(
-            float(
-                source["declared_final_score"]
-            )
-            for source in referenced
-        )
-
-        declared_score = float(
-            item["final_score"]
-        )
-
-        if not close_enough(
-            expected_score,
-            declared_score,
-        ):
-            errors.append(
-                f"resolved_weights[{index}]: "
-                "final_score does not match "
-                "referenced contribution final scores"
-            )
-
-        expected_confidence = min(
-            float(
-                source["evidence_confidence"]
-            )
-            for source in referenced
-        )
-
-        if not close_enough(
-            expected_confidence,
-            float(item["confidence"]),
-        ):
-            errors.append(
-                f"resolved_weights[{index}]: "
-                "confidence must equal the lowest "
-                "evidence confidence among referenced "
-                "contributions"
-            )
-
-        statuses = {
-            source["eligibility_status"]
-            for source in referenced
-        }
-
-        if (
-            "excluded_by_policy" in statuses
-            and item["resolution_status"]
-            != "excluded_by_policy"
-        ):
-            errors.append(
-                f"resolved_weights[{index}]: "
-                "excluded contribution cannot receive "
-                "a proposed or held weight"
-            )
-
-        if (
-            "held_for_review" in statuses
-            and item["resolution_status"]
-            == "proposed"
-        ):
-            errors.append(
-                f"resolved_weights[{index}]: "
-                "held contribution cannot be resolved "
-                "as proposed"
-            )
-
-        if (
-            item["resolution_status"]
-            == "excluded_by_policy"
-        ):
-            if not close_enough(
-                declared_score,
-                0.0,
-            ):
+            if not close_enough(base, allocatable):
                 errors.append(
-                    f"resolved_weights[{index}]: "
-                    "excluded_by_policy requires "
-                    "final_score equal to zero"
+                    f"policy_allocations[{index}]: "
+                    "calculation_base_amount must equal "
+                    "allocatable pool"
+                )
+
+        elif method == "percentage_of_remaining_pool":
+            if "rate" not in item:
+                errors.append(
+                    f"policy_allocations[{index}]: "
+                    "percentage method requires rate"
+                )
+                expected = calculated
+            else:
+                expected = (
+                    current_remaining
+                    * float(item["rate"])
+                )
+
+            if "fixed_amount" in item:
+                errors.append(
+                    f"policy_allocations[{index}]: "
+                    "percentage method must not contain "
+                    "fixed_amount"
                 )
 
             if not close_enough(
-                float(
-                    item["normalized_weight"]
-                ),
-                0.0,
+                base,
+                current_remaining,
             ):
                 errors.append(
-                    f"resolved_weights[{index}]: "
-                    "excluded_by_policy requires "
-                    "normalized_weight equal to zero"
+                    f"policy_allocations[{index}]: "
+                    "calculation_base_amount must equal "
+                    "the remaining pool at that priority stage"
                 )
+
         else:
-            score_total += declared_score
-            weight_total += float(
-                item["normalized_weight"]
+            expected = calculated
+
+        if not close_enough(expected, calculated):
+            errors.append(
+                f"policy_allocations[{index}]: "
+                "calculated_amount does not match "
+                "the declared method and calculation base"
             )
 
-    duplicate_usage = duplicates(used_ids)
+        if calculated > current_remaining + EPSILON:
+            errors.append(
+                f"policy_allocations[{index}]: "
+                "allocation exceeds the remaining pool"
+            )
 
-    if duplicate_usage:
+        current_remaining -= calculated
+        policy_total += calculated
+
+    policy_holdback = float(
+        reserve["policy_holdback_amount"]
+    )
+
+    dispute_holdback = float(
+        reserve["dispute_holdback_amount"]
+    )
+
+    rounding_remainder = float(
+        reserve["rounding_remainder_amount"]
+    )
+
+    unallocated = float(
+        reserve["unallocated_amount"]
+    )
+
+    expected_proportional_base = (
+        allocatable
+        - policy_total
+        - policy_holdback
+        - dispute_holdback
+        - unallocated
+    )
+
+    proportional_base = float(
+        proportional["base_amount"]
+    )
+
+    if not close_enough(
+        expected_proportional_base,
+        proportional_base,
+    ):
         errors.append(
-            "contribution_ids assigned to multiple "
-            "resolved beneficiaries: "
-            + ", ".join(
-                duplicate_usage
-            )
+            "proportional_distribution.base_amount "
+            "must equal the allocatable pool minus "
+            "policy allocations, holdbacks, and "
+            "explicit unallocated amount"
         )
 
-    unresolved_ids = summary[
-        "unresolved_contribution_ids"
+    entries = proportional["entries"]
+
+    entry_ids = [
+        item["entry_id"]
+        for item in entries
     ]
 
-    unknown_unresolved = sorted(
-        set(unresolved_ids)
-        - set(contribution_ids)
+    duplicate_entry_ids = duplicate_values(
+        entry_ids
     )
 
-    if unknown_unresolved:
+    if duplicate_entry_ids:
         errors.append(
-            "unknown unresolved_contribution_ids: "
-            + ", ".join(
-                unknown_unresolved
+            "duplicate proportional entry_id values: "
+            + ", ".join(duplicate_entry_ids)
+        )
+
+    entry_beneficiaries = [
+        item["beneficiary_id"]
+        for item in entries
+    ]
+
+    duplicate_entry_beneficiaries = duplicate_values(
+        entry_beneficiaries
+    )
+
+    if duplicate_entry_beneficiaries:
+        errors.append(
+            "duplicate proportional beneficiary_id values: "
+            + ", ".join(duplicate_entry_beneficiaries)
+        )
+
+    source_weight_total = sum(
+        float(item["source_normalized_weight"])
+        for item in entries
+    )
+
+    effective_weight_total = sum(
+        float(item["effective_weight"])
+        for item in entries
+    )
+
+    signed_delta_total = 0.0
+    distributed_total = 0.0
+
+    for index, item in enumerate(entries):
+        source_weight = float(
+            item["source_normalized_weight"]
+        )
+
+        effective_weight = float(
+            item["effective_weight"]
+        )
+
+        adjustment = item["weight_adjustment"]
+
+        signed_delta = float(
+            adjustment["signed_delta"]
+        )
+
+        applied = bool(
+            adjustment["applied"]
+        )
+
+        base = float(
+            item["calculation_base_amount"]
+        )
+
+        calculated = float(
+            item["calculated_amount"]
+        )
+
+        if not close_enough(
+            base,
+            proportional_base,
+        ):
+            errors.append(
+                f"proportional_distribution.entries[{index}]: "
+                "calculation_base_amount must equal "
+                "the proportional base"
             )
-        )
 
-    overlap = sorted(
-        set(used_ids)
-        & set(unresolved_ids)
-    )
-
-    if overlap:
-        errors.append(
-            "contributions cannot be both resolved "
-            "and unresolved: "
-            + ", ".join(overlap)
-        )
-
-    missing = sorted(
-        set(contribution_ids)
-        - (
-            set(used_ids)
-            | set(unresolved_ids)
-        )
-    )
-
-    if missing:
-        errors.append(
-            "input contributions missing from "
-            "resolved or unresolved sets: "
-            + ", ".join(missing)
-        )
-
-    if score_total <= EPSILON:
-        errors.append(
-            "at least one non-excluded resolved score "
-            "must be greater than zero"
-        )
-    else:
-        for index, item in enumerate(resolved):
-            if (
-                item["resolution_status"]
-                == "excluded_by_policy"
-            ):
-                continue
-
-            expected_weight = (
-                float(item["final_score"])
-                / score_total
+        if not close_enough(
+            source_weight + signed_delta,
+            effective_weight,
+        ):
+            errors.append(
+                f"proportional_distribution.entries[{index}]: "
+                "effective_weight must equal "
+                "source_normalized_weight plus signed_delta"
             )
 
-            if not close_enough(
-                expected_weight,
-                float(
-                    item["normalized_weight"]
-                ),
-            ):
+        if applied:
+            if close_enough(signed_delta, 0.0):
                 errors.append(
-                    f"resolved_weights[{index}]: "
-                    "normalized_weight must equal "
-                    "final_score divided by the total "
-                    "non-excluded final score"
+                    f"proportional_distribution.entries[{index}]: "
+                    "an applied weight adjustment "
+                    "requires a non-zero delta"
                 )
 
-    if not close_enough(
-        score_total,
-        float(
-            summary[
-                "declared_final_score_total"
-            ]
-        ),
-    ):
-        errors.append(
-            "integrity_summary."
-            "declared_final_score_total does not "
-            "match resolved scores"
+            if not adjustment["rule_refs"]:
+                errors.append(
+                    f"proportional_distribution.entries[{index}]: "
+                    "an applied weight adjustment "
+                    "requires rule_refs"
+                )
+
+        else:
+            if not close_enough(signed_delta, 0.0):
+                errors.append(
+                    f"proportional_distribution.entries[{index}]: "
+                    "a non-applied adjustment requires "
+                    "zero signed_delta"
+                )
+
+            if not close_enough(
+                source_weight,
+                effective_weight,
+            ):
+                errors.append(
+                    f"proportional_distribution.entries[{index}]: "
+                    "a non-applied adjustment cannot "
+                    "change the weight"
+                )
+
+        expected_amount = (
+            proportional_base
+            * effective_weight
         )
 
-    if not close_enough(
-        weight_total,
-        float(
-            summary[
-                "declared_normalized_weight_total"
-            ]
-        ),
-    ):
-        errors.append(
-            "integrity_summary."
-            "declared_normalized_weight_total does "
-            "not match resolved weights"
-        )
+        if not close_enough(
+            expected_amount,
+            calculated,
+        ):
+            errors.append(
+                f"proportional_distribution.entries[{index}]: "
+                "calculated_amount must equal "
+                "proportional base multiplied by "
+                "effective_weight"
+            )
+
+        signed_delta_total += signed_delta
+        distributed_total += calculated
 
     if not close_enough(
-        weight_total,
+        source_weight_total,
         1.0,
     ):
         errors.append(
-            "non-excluded normalized weights "
+            "source_normalized_weight values "
             "must sum to 1.0"
+        )
+
+    if not close_enough(
+        effective_weight_total,
+        1.0,
+    ):
+        errors.append(
+            "effective_weight values must sum to 1.0"
+        )
+
+    if not close_enough(
+        signed_delta_total,
+        0.0,
+    ):
+        errors.append(
+            "weight adjustment signed_delta values "
+            "must sum to zero"
+        )
+
+    declared_distributed = float(
+        proportional["distributed_amount"]
+    )
+
+    if not close_enough(
+        distributed_total,
+        declared_distributed,
+    ):
+        errors.append(
+            "proportional_distribution."
+            "distributed_amount does not match "
+            "the sum of proportional entries"
+        )
+
+    if not close_enough(
+        distributed_total + rounding_remainder,
+        proportional_base,
+    ):
+        errors.append(
+            "proportional entry amounts plus "
+            "rounding remainder must equal "
+            "the proportional base"
+        )
+
+    policy_by_id = {
+        item["allocation_id"]: item
+        for item in policy_allocations
+    }
+
+    entry_by_id = {
+        item["entry_id"]: item
+        for item in entries
+    }
+
+    total_beneficiary_ids = [
+        item["beneficiary_id"]
+        for item in totals
+    ]
+
+    duplicate_total_beneficiaries = duplicate_values(
+        total_beneficiary_ids
+    )
+
+    if duplicate_total_beneficiaries:
+        errors.append(
+            "duplicate beneficiary_totals "
+            "beneficiary_id values: "
+            + ", ".join(duplicate_total_beneficiaries)
+        )
+
+    referenced_components: list[str] = []
+    beneficiary_total_sum = 0.0
+
+    for index, item in enumerate(totals):
+        beneficiary_id = item["beneficiary_id"]
+
+        declared_policy = float(
+            item["policy_allocation_amount"]
+        )
+
+        declared_proportional = float(
+            item["proportional_allocation_amount"]
+        )
+
+        declared_total = float(
+            item["total_planned_amount"]
+        )
+
+        calculated_policy = 0.0
+        calculated_proportional = 0.0
+
+        for component_ref in item["component_refs"]:
+            if component_ref in policy_by_id:
+                component = policy_by_id[
+                    component_ref
+                ]
+
+                if (
+                    component["recipient_id"]
+                    != beneficiary_id
+                ):
+                    errors.append(
+                        f"beneficiary_totals[{index}]: "
+                        f"policy component {component_ref} "
+                        "belongs to another recipient"
+                    )
+
+                calculated_policy += float(
+                    component["calculated_amount"]
+                )
+
+                referenced_components.append(
+                    component_ref
+                )
+
+            elif component_ref in entry_by_id:
+                component = entry_by_id[
+                    component_ref
+                ]
+
+                if (
+                    component["beneficiary_id"]
+                    != beneficiary_id
+                ):
+                    errors.append(
+                        f"beneficiary_totals[{index}]: "
+                        "proportional component "
+                        f"{component_ref} belongs to "
+                        "another beneficiary"
+                    )
+
+                calculated_proportional += float(
+                    component["calculated_amount"]
+                )
+
+                referenced_components.append(
+                    component_ref
+                )
+
+            else:
+                errors.append(
+                    f"beneficiary_totals[{index}]: "
+                    f"unknown component_ref {component_ref}"
+                )
+
+        if not close_enough(
+            calculated_policy,
+            declared_policy,
+        ):
+            errors.append(
+                f"beneficiary_totals[{index}]: "
+                "policy_allocation_amount does not "
+                "match referenced policy components"
+            )
+
+        if not close_enough(
+            calculated_proportional,
+            declared_proportional,
+        ):
+            errors.append(
+                f"beneficiary_totals[{index}]: "
+                "proportional_allocation_amount does "
+                "not match referenced proportional "
+                "components"
+            )
+
+        if not close_enough(
+            declared_policy
+            + declared_proportional,
+            declared_total,
+        ):
+            errors.append(
+                f"beneficiary_totals[{index}]: "
+                "total_planned_amount must equal "
+                "policy plus proportional allocation "
+                "amounts"
+            )
+
+        beneficiary_total_sum += declared_total
+
+    duplicate_component_usage = duplicate_values(
+        referenced_components
+    )
+
+    if duplicate_component_usage:
+        errors.append(
+            "allocation components referenced by "
+            "multiple beneficiary totals: "
+            + ", ".join(duplicate_component_usage)
+        )
+
+    all_component_ids = (
+        set(allocation_ids)
+        | set(entry_ids)
+    )
+
+    missing_components = sorted(
+        all_component_ids
+        - set(referenced_components)
+    )
+
+    if missing_components:
+        errors.append(
+            "allocation components missing from "
+            "beneficiary_totals: "
+            + ", ".join(missing_components)
+        )
+
+    unknown_components = sorted(
+        set(referenced_components)
+        - all_component_ids
+    )
+
+    if unknown_components:
+        errors.append(
+            "unknown components referenced in "
+            "beneficiary_totals: "
+            + ", ".join(unknown_components)
+        )
+
+    reserve_total = (
+        policy_holdback
+        + dispute_holdback
+        + rounding_remainder
+        + unallocated
+    )
+
+    plan_total = (
+        beneficiary_total_sum
+        + reserve_total
+    )
+
+    if not close_enough(
+        policy_total,
+        float(
+            summary[
+                "declared_policy_allocation_total"
+            ]
+        ),
+    ):
+        errors.append(
+            "integrity_summary."
+            "declared_policy_allocation_total "
+            "does not match policy allocations"
+        )
+
+    if not close_enough(
+        distributed_total,
+        float(
+            summary[
+                "declared_proportional_distribution_total"
+            ]
+        ),
+    ):
+        errors.append(
+            "integrity_summary."
+            "declared_proportional_distribution_total "
+            "does not match proportional entries"
+        )
+
+    if not close_enough(
+        beneficiary_total_sum,
+        float(
+            summary[
+                "declared_beneficiary_total"
+            ]
+        ),
+    ):
+        errors.append(
+            "integrity_summary."
+            "declared_beneficiary_total does not "
+            "match beneficiary_totals"
+        )
+
+    if not close_enough(
+        reserve_total,
+        float(
+            summary[
+                "declared_reserve_total"
+            ]
+        ),
+    ):
+        errors.append(
+            "integrity_summary."
+            "declared_reserve_total does not "
+            "match reserve"
+        )
+
+    if not close_enough(
+        plan_total,
+        float(
+            summary[
+                "declared_plan_total"
+            ]
+        ),
+    ):
+        errors.append(
+            "integrity_summary."
+            "declared_plan_total does not "
+            "match the plan"
+        )
+
+    if not close_enough(
+        plan_total,
+        allocatable,
+    ):
+        errors.append(
+            "beneficiary totals plus reserve must "
+            "equal the allocatable pool"
         )
 
     if (
         int(
             summary[
-                "declared_resolved_beneficiary_count"
+                "declared_beneficiary_count"
             ]
         )
-        != len(resolved)
+        != len(totals)
     ):
         errors.append(
             "integrity_summary."
-            "declared_resolved_beneficiary_count "
-            "does not match resolved_weights length"
+            "declared_beneficiary_count does not "
+            "match beneficiary_totals length"
         )
 
     if (
@@ -575,18 +773,18 @@ def semantic_errors(
         == "eligible_after_approval"
     ):
         errors.append(
-            "allocation ledger generation cannot be "
-            "eligible before human approval"
+            "allocation ledger generation cannot "
+            "be eligible before human review approval"
         )
 
     if (
         downstream[
-            "automatic_right_creation_prohibited"
+            "automatic_reallocation_prohibited"
         ]
         is not True
     ):
         errors.append(
-            "v0.2 requires automatic right creation "
+            "v0.3 requires automatic reallocation "
             "to remain prohibited"
         )
 
@@ -597,7 +795,7 @@ def semantic_errors(
         is not True
     ):
         errors.append(
-            "v0.2 requires settlement execution "
+            "v0.3 requires settlement execution "
             "to remain prohibited"
         )
 
@@ -634,8 +832,8 @@ def main() -> int:
     )
 
     print(
-        "=== Contribution Weight Resolution "
-        "v0.2 Validation ==="
+        "=== Multi-Beneficiary Allocation Plan "
+        "v0.3 Validation ==="
     )
 
     pass_errors = validate(
@@ -655,7 +853,7 @@ def main() -> int:
         return 1
 
     print(
-        f"[PASS] "
+        "[PASS] "
         f"{PASS_EXAMPLE.relative_to(ROOT)}"
     )
 
@@ -681,7 +879,7 @@ def main() -> int:
         print(f"  - {error}")
 
     print(
-        "\nAll v0.2 validations "
+        "\nAll v0.3 validations "
         "completed successfully."
     )
 
