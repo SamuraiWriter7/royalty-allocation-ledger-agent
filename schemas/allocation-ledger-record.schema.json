@@ -1,0 +1,566 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SamuraiWriter7/royalty-allocation-ledger-agent/schemas/allocation-ledger-record.schema.json",
+  "title": "Allocation Ledger Record",
+  "description": "An audit-ready record describing evidence-backed royalty allocations, payable amounts, held amounts, and human approval status.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ledger_id",
+    "created_at",
+    "generated_by",
+    "source_context",
+    "royalty_pool",
+    "beneficiaries",
+    "totals",
+    "approval",
+    "ledger_status",
+    "safety_boundary"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1.0"
+    },
+    "ledger_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generated_by": {
+      "$ref": "#/$defs/generatedBy"
+    },
+    "source_context": {
+      "$ref": "#/$defs/sourceContext"
+    },
+    "royalty_pool": {
+      "$ref": "#/$defs/royaltyPool"
+    },
+    "beneficiaries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/beneficiaryAllocation"
+      }
+    },
+    "totals": {
+      "$ref": "#/$defs/allocationTotals"
+    },
+    "approval": {
+      "$ref": "#/$defs/humanApproval"
+    },
+    "ledger_status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "pending_human_approval",
+        "approved",
+        "rejected",
+        "superseded"
+      ]
+    },
+    "supersedes_ledger_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "safety_boundary": {
+      "$ref": "#/$defs/safetyBoundary"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ledger_status": {
+            "const": "superseded"
+          }
+        },
+        "required": [
+          "ledger_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "supersedes_ledger_id"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "generatedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_id",
+        "agent_type",
+        "generation_mode"
+      ],
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "agent_type": {
+          "type": "string",
+          "const": "royalty-allocation-ledger-agent"
+        },
+        "generation_mode": {
+          "type": "string",
+          "enum": [
+            "draft_only",
+            "human_supervised"
+          ]
+        },
+        "model_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "sourceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allocation_readiness_record_id",
+        "allocation_policy_id",
+        "source_records"
+      ],
+      "properties": {
+        "allocation_readiness_record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "allocation_policy_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "source_records": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/sourceRecord"
+          }
+        }
+      }
+    },
+    "sourceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type",
+        "record_id",
+        "verification_status"
+      ],
+      "properties": {
+        "record_type": {
+          "type": "string",
+          "enum": [
+            "origin_record",
+            "derivative_record",
+            "contribution_attribution",
+            "allocation_readiness",
+            "allocation_policy",
+            "license_constraint",
+            "dispute_record",
+            "identity_record",
+            "other"
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "verification_status": {
+          "type": "string",
+          "const": "verified"
+        },
+        "uri": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "royaltyPool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pool_id",
+        "currency",
+        "gross_amount",
+        "distributable_amount"
+      ],
+      "properties": {
+        "pool_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "gross_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "distributable_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "excluded_amount": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0
+        },
+        "excluded_amount_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "beneficiaryAllocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "beneficiary_id",
+        "beneficiary_type",
+        "structural_role",
+        "gross_allocation",
+        "payable_amount",
+        "held_amount",
+        "allocation_status",
+        "approval_status",
+        "evidence_refs"
+      ],
+      "properties": {
+        "beneficiary_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "beneficiary_type": {
+          "type": "string",
+          "enum": [
+            "human",
+            "organization",
+            "collective",
+            "community_fund",
+            "public_fund",
+            "other"
+          ]
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "structural_role": {
+          "type": "string",
+          "enum": [
+            "origin",
+            "derivative",
+            "contributor",
+            "supporting_contributor",
+            "verifier",
+            "auditor",
+            "community_fund",
+            "platform",
+            "other"
+          ]
+        },
+        "gross_allocation": {
+          "type": "number",
+          "minimum": 0
+        },
+        "payable_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "held_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "allocation_status": {
+          "type": "string",
+          "enum": [
+            "payable",
+            "partially_held",
+            "fully_held",
+            "rejected"
+          ]
+        },
+        "approval_status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidenceReference"
+          }
+        },
+        "hold_reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/holdReason"
+          }
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        }
+      }
+    },
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type",
+        "record_id",
+        "relation",
+        "verified"
+      ],
+      "properties": {
+        "record_type": {
+          "type": "string",
+          "enum": [
+            "origin_record",
+            "derivative_record",
+            "contribution_attribution",
+            "allocation_readiness",
+            "allocation_policy",
+            "license_constraint",
+            "dispute_record",
+            "identity_record",
+            "other"
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "relation": {
+          "type": "string",
+          "enum": [
+            "supports_origin",
+            "supports_contribution",
+            "supports_policy",
+            "supports_readiness",
+            "supports_hold",
+            "supports_identity",
+            "other"
+          ]
+        },
+        "verified": {
+          "type": "boolean",
+          "const": true
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "holdReason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason_code",
+        "description"
+      ],
+      "properties": {
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "unresolved_dispute",
+            "missing_beneficiary_endpoint",
+            "license_review",
+            "identity_verification",
+            "tax_review",
+            "human_review",
+            "other"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "related_record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "allocationTotals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gross_allocated",
+        "payable_total",
+        "held_total",
+        "unallocated_total"
+      ],
+      "properties": {
+        "gross_allocated": {
+          "type": "number",
+          "minimum": 0
+        },
+        "payable_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "held_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unallocated_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rounding_adjustment": {
+          "type": "number",
+          "default": 0
+        }
+      }
+    },
+    "humanApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "human_review_required",
+        "status"
+      ],
+      "properties": {
+        "human_review_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "approver_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approval_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "rejection_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "approver_id",
+              "approval_receipt_id",
+              "approved_at"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "rejected"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "rejection_reason"
+            ]
+          }
+        }
+      ]
+    },
+    "safetyBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_required",
+        "rights_creation_prohibited",
+        "autonomous_payment_prohibited",
+        "human_approval_required"
+      ],
+      "properties": {
+        "evidence_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "rights_creation_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "autonomous_payment_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "human_approval_required": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    }
+  }
+}
