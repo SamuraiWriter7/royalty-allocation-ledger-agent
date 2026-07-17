@@ -1,6 +1,3 @@
-## `examples/pass/multi-beneficiary-allocation-plan.example.yaml`
-
-```yaml
 schema_version: "0.3.0"
 
 plan_id: "multi-beneficiary-allocation-plan-2026-0001"
@@ -289,11 +286,9 @@ safety_boundary:
   autonomous_payment_prohibited: true
   held_weight_redistribution_prohibited: true
   human_approval_required: true
-```
 
 ## `policies/default-multi-beneficiary-allocation-policy.example.yaml`
 
-```yaml
 policy_version: "0.3.0"
 
 policy_id: "default-multi-beneficiary-allocation-policy-v0.3"
@@ -360,4 +355,3 @@ prohibited_rules:
 
 approval:
   human_review_required: true
-```
