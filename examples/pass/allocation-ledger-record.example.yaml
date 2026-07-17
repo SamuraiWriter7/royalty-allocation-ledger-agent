@@ -1,0 +1,112 @@
+schema_version: 0.1.0
+ledger_id: ral_20260717_alpha001
+created_at: "2026-07-17T04:15:00Z"
+
+allocation_context:
+  allocation_subject_id: article-ai-ship-rebellion-001
+  allocation_subject_type: content
+  policy_id: policy-origin-derivative-community-v1
+  currency: JPY
+
+  evidence_bundle_refs:
+    - ref_id: origin-record-article-001
+      ref_type: origin_record
+
+    - ref_id: contribution-record-editor-001
+      ref_type: contribution_record
+
+    - ref_id: policy-origin-derivative-community-v1
+      ref_type: policy
+
+  notes: Proposed distribution for a single monetization event.
+
+royalty_pool:
+  gross_amount: 100000
+  deduction_amount: 5000
+  allocatable_amount: 95000
+
+  source_refs:
+    - ref_id: payment-source-20260717-001
+      ref_type: payment_source
+
+beneficiaries:
+  - beneficiary_id: creator-origin-001
+    beneficiary_type: person
+    structural_role: origin
+
+    contribution_weight: 0.50
+    gross_allocation_amount: 47500
+    payable_amount: 47500
+    held_amount: 0
+
+    allocation_status: payable_after_approval
+
+    evidence_refs:
+      - ref_id: origin-record-article-001
+        ref_type: origin_record
+
+    rationale: Primary originator of the article concept and source structure.
+    payment_endpoint_ref: beneficiary-endpoint-creator-001
+
+  - beneficiary_id: editor-derivative-001
+    beneficiary_type: person
+    structural_role: derivative
+
+    contribution_weight: 0.30
+    gross_allocation_amount: 28500
+    payable_amount: 28500
+    held_amount: 0
+
+    allocation_status: payable_after_approval
+
+    evidence_refs:
+      - ref_id: contribution-record-editor-001
+        ref_type: contribution_record
+
+    rationale: Verified derivative editing and publication preparation.
+    payment_endpoint_ref: beneficiary-endpoint-editor-001
+
+  - beneficiary_id: community-fund-001
+    beneficiary_type: community_fund
+    structural_role: community
+
+    contribution_weight: 0.15
+    gross_allocation_amount: 14250
+    payable_amount: 14250
+    held_amount: 0
+
+    allocation_status: payable_after_approval
+
+    evidence_refs:
+      - ref_id: policy-origin-derivative-community-v1
+        ref_type: policy
+
+    rationale: Policy-defined allocation to the shared community fund.
+    payment_endpoint_ref: beneficiary-endpoint-community-001
+
+reserve:
+  holdback_amount: 0
+  rounding_remainder_amount: 0
+  unallocated_amount: 4750
+
+  reserve_reason_refs:
+    - ref_id: policy-origin-derivative-community-v1
+      ref_type: policy
+
+integrity_summary:
+  declared_weight_total: 0.95
+  declared_payable_amount: 90250
+  declared_held_amount: 0
+  declared_allocated_amount: 90250
+  integrity_status: verified
+
+  integrity_notes:
+    - Five percent remains unallocated under the current policy draft.
+
+human_review:
+  required: true
+  status: pending
+
+settlement_state:
+  status: review_pending
+  execution_prohibited: true
