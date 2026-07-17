@@ -1,0 +1,72 @@
+policy_version: "0.2.0"
+
+policy_id: "default-contribution-weight-policy-v0.2"
+
+title: "Default Contribution Weight Resolution Policy"
+
+description: >-
+  Example policy for translating verified contribution attribution into
+  provisional allocation weights. This policy does not create attribution,
+  rights, payment obligations, or settlement instructions.
+
+normalization:
+  target: 1
+  precision: 6
+  held_weight_treatment: "reserve_in_normalization"
+
+component_rules:
+  - component_type: "origin"
+    default_multiplier: 1.5
+    requires_verified_attribution: true
+
+  - component_type: "derivative"
+    default_multiplier: 1
+    requires_verified_attribution: true
+
+  - component_type: "supporting_contribution"
+    default_multiplier: 1
+    requires_verified_attribution: true
+
+  - component_type: "verification_contribution"
+    default_multiplier: 0.5
+    requires_verified_attribution: true
+
+  - component_type: "audit_contribution"
+    default_multiplier: 0.5
+    requires_verified_attribution: true
+
+  - component_type: "maintenance_contribution"
+    default_multiplier: 0.5
+    requires_verified_attribution: true
+
+adjustment_rules:
+  allowed_adjustments:
+    - "policy_bonus"
+    - "policy_penalty"
+    - "minimum_floor"
+    - "maximum_cap"
+    - "confidence_discount"
+    - "dispute_reserve"
+    - "manual_correction"
+
+  evidence_required: true
+  explanation_required: true
+  human_review_required: true
+
+dispute_policy:
+  verified_but_disputed_attribution: "hold_weight"
+  redistribute_held_weight: false
+  allow_autonomous_resolution: false
+
+prohibited_rules:
+  - "create_unverified_attribution"
+  - "increase_weight_for_visibility"
+  - "increase_weight_for_job_title"
+  - "increase_weight_for_platform_ownership"
+  - "remove_origin_without_verified_superseding_record"
+  - "redistribute_disputed_weight_without_approval"
+  - "designate_agent_as_beneficiary"
+  - "convert_weight_directly_to_payment"
+
+approval:
+  human_review_required: true
