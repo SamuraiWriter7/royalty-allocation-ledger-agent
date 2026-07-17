@@ -1,0 +1,58 @@
+schema_version: 0.1.0
+ledger_id: ral_20260717_fail001
+created_at: "2026-07-17T04:15:00Z"
+
+allocation_context:
+  allocation_subject_id: invalid-example
+  allocation_subject_type: content
+  policy_id: policy-001
+  currency: JPY
+
+  evidence_bundle_refs:
+    - ref_id: policy-001
+      ref_type: policy
+
+royalty_pool:
+  gross_amount: 1000
+  deduction_amount: 0
+  allocatable_amount: 1000
+
+  source_refs:
+    - ref_id: payment-001
+      ref_type: payment_source
+
+beneficiaries:
+  - beneficiary_id: person-without-evidence
+    beneficiary_type: person
+    structural_role: origin
+
+    contribution_weight: 1
+    gross_allocation_amount: 1000
+    payable_amount: 1000
+    held_amount: 0
+
+    allocation_status: payable_after_approval
+
+    evidence_refs: []
+
+    rationale: This must fail because evidence_refs is empty.
+
+reserve:
+  holdback_amount: 0
+  rounding_remainder_amount: 0
+  unallocated_amount: 0
+
+integrity_summary:
+  declared_weight_total: 1
+  declared_payable_amount: 1000
+  declared_held_amount: 0
+  declared_allocated_amount: 1000
+  integrity_status: verified
+
+human_review:
+  required: true
+  status: pending
+
+settlement_state:
+  status: review_pending
+  execution_prohibited: true
