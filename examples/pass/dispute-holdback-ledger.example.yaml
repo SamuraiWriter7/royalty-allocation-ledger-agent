@@ -1,0 +1,203 @@
+schema_version: "0.4.0"
+
+holdback_ledger_id: "dispute-holdback-ledger-2026-0001"
+
+created_at: "2026-07-18T09:00:00+09:00"
+
+generated_by:
+  agent_id: "royalty-allocation-agent-001"
+  agent_type: "royalty-allocation-ledger-agent"
+  generation_mode: "human_supervised"
+  model_reference: "dispute-holdback-ledger-engine"
+
+source_context:
+  allocation_plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+  allocation_policy_id: "default-dispute-holdback-policy-v0.4"
+
+  source_records:
+    - record_type: "multi_beneficiary_allocation_plan"
+      record_id: "multi-beneficiary-allocation-plan-2026-0001"
+      verification_status: "verified"
+
+    - record_type: "allocation_policy"
+      record_id: "default-dispute-holdback-policy-v0.4"
+      verification_status: "verified"
+
+    - record_type: "dispute_record"
+      record_id: "dispute-record-003"
+      verification_status: "verified"
+
+    - record_type: "review_receipt"
+      record_id: "dispute-review-receipt-001"
+      verification_status: "verified"
+
+currency: "JPY"
+
+dispute_cases:
+  - dispute_id: "dispute-record-003"
+    affected_beneficiary_id: "person-b"
+
+    affected_allocation_ref:
+      plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+      beneficiary_id: "person-b"
+      original_reserved_amount: 19000
+
+    dispute_scope:
+      scope_type: "partial_allocation"
+      disputed_amount: 5000
+      undisputed_amount: 14000
+      description: >-
+        The dispute concerns only a limited portion of the derivative
+        contribution. The remaining allocation is not contested.
+
+    claimants:
+      - claimant_id: "claimant-d"
+        claimant_role: "derivative_claimant"
+        claim_record_id: "dispute-record-003"
+
+    status: "partially_resolved"
+
+    opened_at: "2026-07-17T10:00:00+09:00"
+    review_deadline: "2026-08-17T23:59:59+09:00"
+
+    resolution:
+      resolution_type: "partial_release"
+      released_amount: 14000
+      continued_hold_amount: 5000
+      returned_to_pool_amount: 0
+      resolution_receipt_id: "dispute-review-receipt-001"
+      authorized_by: "human-reviewer-001"
+      resolved_at: "2026-07-18T08:50:00+09:00"
+      explanation: >-
+        The undisputed fourteen thousand JPY may return to the beneficiary
+        allocation. Five thousand JPY remains held pending final review.
+
+    evidence_refs:
+      - record_type: "multi_beneficiary_allocation_plan"
+        record_id: "multi-beneficiary-allocation-plan-2026-0001"
+        relation: "supports_hold"
+        verified: true
+        description: >-
+          The source allocation plan reserved nineteen thousand JPY for
+          person-b.
+
+      - record_type: "dispute_record"
+        record_id: "dispute-record-003"
+        relation: "supports_scope"
+        verified: true
+        description: >-
+          The dispute record limits the contested amount to five thousand JPY.
+
+      - record_type: "review_receipt"
+        record_id: "dispute-review-receipt-001"
+        relation: "supports_release"
+        verified: true
+        description: >-
+          The authorized review receipt permits release of the undisputed
+          fourteen thousand JPY.
+
+    explanation: >-
+      The dispute does not affect the beneficiary's entire allocation.
+      Only the specifically contested portion remains held.
+
+holdback_entries:
+  - holdback_id: "holdback-entry-001"
+    dispute_id: "dispute-record-003"
+    beneficiary_id: "person-b"
+    source_plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+
+    source_reserved_amount: 19000
+    correction_adjustment: 0
+    effective_holdback_amount: 19000
+
+    released_amount: 14000
+    current_held_amount: 5000
+    returned_to_pool_amount: 0
+
+    status: "partial_release"
+
+    release_events:
+      - event_id: "release-event-001"
+        event_type: "partial_release"
+        amount: 14000
+        destination: "beneficiary_allocation"
+        authorized_by: "human-reviewer-001"
+        approval_receipt_id: "dispute-review-receipt-001"
+        occurred_at: "2026-07-18T08:50:00+09:00"
+
+        evidence_refs:
+          - record_type: "review_receipt"
+            record_id: "dispute-review-receipt-001"
+            relation: "supports_release"
+            verified: true
+            description: >-
+              Human review authorizes release of the undisputed allocation.
+
+    evidence_refs:
+      - record_type: "multi_beneficiary_allocation_plan"
+        record_id: "multi-beneficiary-allocation-plan-2026-0001"
+        relation: "supports_hold"
+        verified: true
+        description: >-
+          The allocation plan establishes the original reserved amount.
+
+      - record_type: "dispute_record"
+        record_id: "dispute-record-003"
+        relation: "supports_scope"
+        verified: true
+        description: >-
+          The dispute record identifies the five thousand JPY contested
+          portion.
+
+      - record_type: "review_receipt"
+        record_id: "dispute-review-receipt-001"
+        relation: "supports_release"
+        verified: true
+        description: >-
+          The review receipt authorizes the partial release.
+
+    explanation: >-
+      Fourteen thousand JPY has been released back to the beneficiary
+      allocation. Five thousand JPY remains under an active hold.
+
+totals:
+  source_reserved_total: 19000
+  correction_adjustment_total: 0
+  effective_holdback_total: 19000
+  released_to_allocation_total: 14000
+  current_held_total: 5000
+  returned_to_pool_total: 0
+  affected_beneficiary_count: 1
+  open_dispute_count: 1
+  resolved_dispute_count: 0
+
+review_control:
+  partial_processing_allowed: true
+  unaffected_allocations_may_proceed: true
+  automatic_dispute_resolution_prohibited: true
+  review_owner_id: "human-reviewer-001"
+  default_review_deadline: "2026-08-17T23:59:59+09:00"
+
+approval:
+  human_review_required: true
+  status: "approved"
+  approver_id: "human-reviewer-001"
+  approval_receipt_id: "dispute-review-receipt-001"
+  approved_at: "2026-07-18T08:55:00+09:00"
+
+ledger_status: "approved"
+
+notes:
+  - "Release means removal from holdback, not payment execution."
+  - "The remaining five thousand JPY must not enter settlement."
+  - "Unaffected allocations may continue through the allocation lifecycle."
+  - "Final dispute resolution remains subject to human review."
+
+safety_boundary:
+  evidence_required: true
+  dispute_scope_required: true
+  global_freeze_without_scope_prohibited: true
+  automatic_dispute_resolution_prohibited: true
+  held_amount_redistribution_without_approval_prohibited: true
+  autonomous_payment_prohibited: true
+  human_approval_required: true
