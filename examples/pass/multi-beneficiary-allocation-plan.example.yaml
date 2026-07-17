@@ -55,9 +55,9 @@ policy_application:
       remainder without changing the approved normalized weights.
 
   description: >-
-    One percent is assigned to the community fund and four percent is assigned
-    as a platform operating fee. The remaining ninety-five percent is divided
-    using the approved contribution weights.
+    One percent of the distributable pool is assigned to the community fund,
+    and four percent is assigned as a platform operating fee. The remaining
+    ninety-five percent is divided using the approved contribution weights.
 
 beneficiaries:
   - beneficiary_id: "person-a"
@@ -89,17 +89,21 @@ beneficiaries:
         record_id: "contribution-weight-resolution-2026-0001"
         relation: "supports_weight"
         verified: true
-        description: "Approved provisional weight of 0.30."
+        description: >-
+          The approved contribution weight resolution assigns a normalized
+          weight of 0.30 to person-a.
 
       - record_type: "allocation_policy"
         record_id: "default-multi-beneficiary-allocation-policy-v0.3"
         relation: "supports_constraint"
         verified: true
-        description: "Policy authorizes proportional allocation from the remaining pool."
+        description: >-
+          The allocation policy authorizes proportional allocation from the
+          remaining royalty pool.
 
     explanation: >-
-      Person A receives thirty percent of the proportional pool based on the
-      approved contribution weight.
+      Person A receives thirty percent of the proportional allocation pool
+      based on the approved contribution weight.
 
   - beneficiary_id: "person-b"
     beneficiary_type: "human"
@@ -128,8 +132,8 @@ beneficiaries:
     reserve_reasons:
       - reason_code: "unresolved_dispute"
         description: >-
-          The approved weight remains reserved because a limited contribution
-          dispute has not been resolved.
+          The approved contribution weight remains reserved because a limited
+          contribution dispute has not yet been resolved.
         related_record_id: "dispute-record-003"
 
     evidence_refs:
@@ -137,17 +141,22 @@ beneficiaries:
         record_id: "contribution-weight-resolution-2026-0001"
         relation: "supports_weight"
         verified: true
-        description: "The approved resolution reserves a weight of 0.20."
+        description: >-
+          The approved contribution weight resolution reserves a normalized
+          weight of 0.20 for person-b.
 
       - record_type: "dispute_record"
         record_id: "dispute-record-003"
         relation: "supports_reserve"
         verified: true
-        description: "The disputed allocation must remain reserved."
+        description: >-
+          The verified dispute record requires the corresponding allocation
+          amount to remain reserved.
 
     explanation: >-
-      The amount is calculated but is not a payable candidate. It remains
-      reserved and must not be redistributed to other beneficiaries.
+      Person B's allocation amount is calculated but is not treated as a
+      payable candidate. The amount remains reserved and must not be
+      redistributed to other beneficiaries.
 
   - beneficiary_id: "person-c"
     beneficiary_type: "human"
@@ -178,16 +187,21 @@ beneficiaries:
         record_id: "contribution-weight-resolution-2026-0001"
         relation: "supports_weight"
         verified: true
-        description: "Approved provisional weight of 0.50."
+        description: >-
+          The approved contribution weight resolution assigns a normalized
+          weight of 0.50 to person-c.
 
       - record_type: "allocation_policy"
         record_id: "default-multi-beneficiary-allocation-policy-v0.3"
         relation: "supports_constraint"
         verified: true
-        description: "Policy authorizes proportional allocation."
+        description: >-
+          The allocation policy authorizes proportional allocation from the
+          remaining royalty pool.
 
     explanation: >-
-      Person C receives fifty percent of the proportional allocation pool.
+      Person C receives fifty percent of the proportional allocation pool
+      based on the approved contribution weight.
 
   - beneficiary_id: "community-fund-001"
     beneficiary_type: "community_fund"
@@ -212,16 +226,21 @@ beneficiaries:
         record_id: "default-multi-beneficiary-allocation-policy-v0.3"
         relation: "supports_fund"
         verified: true
-        description: "The policy assigns one percent to the community fund."
+        description: >-
+          The verified allocation policy assigns one percent of the
+          distributable pool to the community fund.
 
       - record_type: "royalty_pool"
         record_id: "royalty-pool-2026-0001"
         relation: "supports_pool"
         verified: true
-        description: "Verified distributable pool amount."
+        description: >-
+          The allocation is calculated from the verified distributable
+          royalty pool.
 
     explanation: >-
-      One percent of the distributable pool is assigned to the community fund.
+      One percent of the distributable royalty pool is provisionally assigned
+      to the community fund.
 
   - beneficiary_id: "platform-operator-001"
     beneficiary_type: "platform"
@@ -246,16 +265,21 @@ beneficiaries:
         record_id: "default-multi-beneficiary-allocation-policy-v0.3"
         relation: "supports_fee"
         verified: true
-        description: "The policy authorizes a four percent operating fee."
+        description: >-
+          The verified allocation policy authorizes a four percent
+          infrastructure operating fee.
 
       - record_type: "royalty_pool"
         record_id: "royalty-pool-2026-0001"
         relation: "supports_pool"
         verified: true
-        description: "Verified distributable pool amount."
+        description: >-
+          The operating fee is calculated from the verified distributable
+          royalty pool.
 
     explanation: >-
-      Four percent is assigned as a policy-defined infrastructure operating fee.
+      Four percent of the distributable royalty pool is provisionally
+      assigned as an infrastructure operating fee.
 
 totals:
   fixed_allocation_total: 5000
@@ -274,10 +298,10 @@ approval:
 plan_status: "pending_human_approval"
 
 notes:
-  - "This plan does not constitute a payment instruction."
-  - "The reserved amount must not be included in settlement."
-  - "The disputed weight has not been redistributed."
-  - "Tax, employment, identity, and payment endpoint checks remain outside v0.3."
+  - "This allocation plan does not constitute a payment instruction."
+  - "The reserved amount must not be included in a settlement request."
+  - "The disputed contribution weight has not been redistributed."
+  - "Identity, tax, employment, and payment endpoint checks remain outside v0.3."
 
 safety_boundary:
   approved_weight_resolution_required: true
@@ -286,72 +310,3 @@ safety_boundary:
   autonomous_payment_prohibited: true
   held_weight_redistribution_prohibited: true
   human_approval_required: true
-
-## `policies/default-multi-beneficiary-allocation-policy.example.yaml`
-
-policy_version: "0.3.0"
-
-policy_id: "default-multi-beneficiary-allocation-policy-v0.3"
-
-title: "Default Multi-Beneficiary Allocation Policy"
-
-description: >-
-  Example policy for converting approved contribution weights into provisional
-  multi-beneficiary allocation amounts. This policy does not create rights,
-  resolve disputes, or authorize payment.
-
-allocation_order: "fixed_then_proportional"
-
-fixed_allocations:
-  - allocation_id: "community-fund-allocation"
-    allocation_category: "community_fund"
-    beneficiary_id: "community-fund-001"
-    calculation_mode: "fixed_rate"
-    fixed_rate: 0.01
-    evidence_required: true
-
-  - allocation_id: "platform-operating-fee"
-    allocation_category: "platform_fee"
-    beneficiary_id: "platform-operator-001"
-    calculation_mode: "fixed_rate"
-    fixed_rate: 0.04
-    evidence_required: true
-
-proportional_allocation:
-  source: "approved_contribution_weight_resolution"
-  pool_treatment: "remaining_after_fixed_allocations"
-
-  accepted_weight_statuses:
-    - "included"
-    - "held_for_review"
-
-  held_weight_treatment: "reserve_without_redistribution"
-
-constraints:
-  default_minimum_amount: 0
-  default_maximum_pool_share: 0.75
-
-  evidence_required_for_override: true
-  human_approval_required_for_override: true
-
-rounding:
-  method: "half_up"
-  decimal_places: 0
-
-remainder:
-  strategy: "largest_remainder"
-  allow_unexplained_remainder: false
-
-prohibited_rules:
-  - "create_new_beneficiary_without_evidence"
-  - "change_approved_weight_without_superseding_resolution"
-  - "redistribute_held_weight"
-  - "increase_share_for_visibility"
-  - "increase_share_for_job_title"
-  - "increase_share_for_platform_ownership"
-  - "hide_platform_fee"
-  - "convert_plan_directly_to_payment"
-  - "allow_agent_self_allocation"
-
-approval:
-  human_review_required: true
