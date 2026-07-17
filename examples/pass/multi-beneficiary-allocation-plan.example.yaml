@@ -1,0 +1,363 @@
+## `examples/pass/multi-beneficiary-allocation-plan.example.yaml`
+
+```yaml
+schema_version: "0.3.0"
+
+plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+
+created_at: "2026-07-18T08:30:00+09:00"
+
+generated_by:
+  agent_id: "royalty-allocation-agent-001"
+  agent_type: "royalty-allocation-ledger-agent"
+  generation_mode: "human_supervised"
+  model_reference: "multi-beneficiary-allocation-engine"
+
+source_context:
+  weight_resolution_id: "contribution-weight-resolution-2026-0001"
+  allocation_policy_id: "default-multi-beneficiary-allocation-policy-v0.3"
+  royalty_pool_record_id: "royalty-pool-2026-0001"
+
+  source_records:
+    - record_type: "contribution_weight_resolution"
+      record_id: "contribution-weight-resolution-2026-0001"
+      verification_status: "verified"
+
+    - record_type: "allocation_policy"
+      record_id: "default-multi-beneficiary-allocation-policy-v0.3"
+      verification_status: "verified"
+
+    - record_type: "royalty_pool"
+      record_id: "royalty-pool-2026-0001"
+      verification_status: "verified"
+
+    - record_type: "dispute_record"
+      record_id: "dispute-record-003"
+      verification_status: "verified"
+
+royalty_pool:
+  pool_id: "royalty-pool-2026-0001"
+  currency: "JPY"
+  distributable_amount: 100000
+
+policy_application:
+  policy_id: "default-multi-beneficiary-allocation-policy-v0.3"
+  allocation_order: "fixed_then_proportional"
+
+  fixed_allocation_total: 5000
+  proportional_pool_amount: 95000
+
+  rounding_policy:
+    method: "half_up"
+    decimal_places: 0
+
+  remainder_policy:
+    strategy: "largest_remainder"
+    description: >-
+      Any rounding remainder is assigned according to the largest fractional
+      remainder without changing the approved normalized weights.
+
+  description: >-
+    One percent is assigned to the community fund and four percent is assigned
+    as a platform operating fee. The remaining ninety-five percent is divided
+    using the approved contribution weights.
+
+beneficiaries:
+  - beneficiary_id: "person-a"
+    beneficiary_type: "human"
+    display_name: "Origin Contributor A"
+    structural_role: "origin"
+    allocation_category: "beneficiary_share"
+    allocation_mode: "proportional_weight"
+
+    source_weight_ref:
+      resolution_id: "contribution-weight-resolution-2026-0001"
+      beneficiary_id: "person-a"
+      resolution_status: "included"
+      normalized_weight: 0.3
+
+    calculation:
+      basis_amount: 95000
+      normalized_weight: 0.3
+      raw_amount: 28500
+      constraint_adjustment: 0
+      rounded_amount: 28500
+      remainder_adjustment: 0
+      final_planned_amount: 28500
+
+    plan_state: "planned_payable"
+
+    evidence_refs:
+      - record_type: "contribution_weight_resolution"
+        record_id: "contribution-weight-resolution-2026-0001"
+        relation: "supports_weight"
+        verified: true
+        description: "Approved provisional weight of 0.30."
+
+      - record_type: "allocation_policy"
+        record_id: "default-multi-beneficiary-allocation-policy-v0.3"
+        relation: "supports_constraint"
+        verified: true
+        description: "Policy authorizes proportional allocation from the remaining pool."
+
+    explanation: >-
+      Person A receives thirty percent of the proportional pool based on the
+      approved contribution weight.
+
+  - beneficiary_id: "person-b"
+    beneficiary_type: "human"
+    display_name: "Derivative Contributor B"
+    structural_role: "derivative"
+    allocation_category: "beneficiary_share"
+    allocation_mode: "proportional_weight"
+
+    source_weight_ref:
+      resolution_id: "contribution-weight-resolution-2026-0001"
+      beneficiary_id: "person-b"
+      resolution_status: "held_for_review"
+      normalized_weight: 0.2
+
+    calculation:
+      basis_amount: 95000
+      normalized_weight: 0.2
+      raw_amount: 19000
+      constraint_adjustment: 0
+      rounded_amount: 19000
+      remainder_adjustment: 0
+      final_planned_amount: 19000
+
+    plan_state: "reserved_for_review"
+
+    reserve_reasons:
+      - reason_code: "unresolved_dispute"
+        description: >-
+          The approved weight remains reserved because a limited contribution
+          dispute has not been resolved.
+        related_record_id: "dispute-record-003"
+
+    evidence_refs:
+      - record_type: "contribution_weight_resolution"
+        record_id: "contribution-weight-resolution-2026-0001"
+        relation: "supports_weight"
+        verified: true
+        description: "The approved resolution reserves a weight of 0.20."
+
+      - record_type: "dispute_record"
+        record_id: "dispute-record-003"
+        relation: "supports_reserve"
+        verified: true
+        description: "The disputed allocation must remain reserved."
+
+    explanation: >-
+      The amount is calculated but is not a payable candidate. It remains
+      reserved and must not be redistributed to other beneficiaries.
+
+  - beneficiary_id: "person-c"
+    beneficiary_type: "human"
+    display_name: "Supporting Contributor C"
+    structural_role: "supporting_contributor"
+    allocation_category: "beneficiary_share"
+    allocation_mode: "proportional_weight"
+
+    source_weight_ref:
+      resolution_id: "contribution-weight-resolution-2026-0001"
+      beneficiary_id: "person-c"
+      resolution_status: "included"
+      normalized_weight: 0.5
+
+    calculation:
+      basis_amount: 95000
+      normalized_weight: 0.5
+      raw_amount: 47500
+      constraint_adjustment: 0
+      rounded_amount: 47500
+      remainder_adjustment: 0
+      final_planned_amount: 47500
+
+    plan_state: "planned_payable"
+
+    evidence_refs:
+      - record_type: "contribution_weight_resolution"
+        record_id: "contribution-weight-resolution-2026-0001"
+        relation: "supports_weight"
+        verified: true
+        description: "Approved provisional weight of 0.50."
+
+      - record_type: "allocation_policy"
+        record_id: "default-multi-beneficiary-allocation-policy-v0.3"
+        relation: "supports_constraint"
+        verified: true
+        description: "Policy authorizes proportional allocation."
+
+    explanation: >-
+      Person C receives fifty percent of the proportional allocation pool.
+
+  - beneficiary_id: "community-fund-001"
+    beneficiary_type: "community_fund"
+    display_name: "Shared Origin Community Fund"
+    structural_role: "community_fund"
+    allocation_category: "community_fund"
+    allocation_mode: "fixed_rate"
+
+    calculation:
+      basis_amount: 100000
+      fixed_rate: 0.01
+      raw_amount: 1000
+      constraint_adjustment: 0
+      rounded_amount: 1000
+      remainder_adjustment: 0
+      final_planned_amount: 1000
+
+    plan_state: "planned_payable"
+
+    evidence_refs:
+      - record_type: "allocation_policy"
+        record_id: "default-multi-beneficiary-allocation-policy-v0.3"
+        relation: "supports_fund"
+        verified: true
+        description: "The policy assigns one percent to the community fund."
+
+      - record_type: "royalty_pool"
+        record_id: "royalty-pool-2026-0001"
+        relation: "supports_pool"
+        verified: true
+        description: "Verified distributable pool amount."
+
+    explanation: >-
+      One percent of the distributable pool is assigned to the community fund.
+
+  - beneficiary_id: "platform-operator-001"
+    beneficiary_type: "platform"
+    display_name: "Allocation Infrastructure Operator"
+    structural_role: "platform"
+    allocation_category: "platform_fee"
+    allocation_mode: "fixed_rate"
+
+    calculation:
+      basis_amount: 100000
+      fixed_rate: 0.04
+      raw_amount: 4000
+      constraint_adjustment: 0
+      rounded_amount: 4000
+      remainder_adjustment: 0
+      final_planned_amount: 4000
+
+    plan_state: "planned_payable"
+
+    evidence_refs:
+      - record_type: "allocation_policy"
+        record_id: "default-multi-beneficiary-allocation-policy-v0.3"
+        relation: "supports_fee"
+        verified: true
+        description: "The policy authorizes a four percent operating fee."
+
+      - record_type: "royalty_pool"
+        record_id: "royalty-pool-2026-0001"
+        relation: "supports_pool"
+        verified: true
+        description: "Verified distributable pool amount."
+
+    explanation: >-
+      Four percent is assigned as a policy-defined infrastructure operating fee.
+
+totals:
+  fixed_allocation_total: 5000
+  proportional_pool_amount: 95000
+  proportional_allocation_total: 95000
+  final_plan_total: 100000
+  payable_candidate_total: 81000
+  reserved_total: 19000
+  unallocated_total: 0
+  rounding_residual: 0
+
+approval:
+  human_review_required: true
+  status: "pending"
+
+plan_status: "pending_human_approval"
+
+notes:
+  - "This plan does not constitute a payment instruction."
+  - "The reserved amount must not be included in settlement."
+  - "The disputed weight has not been redistributed."
+  - "Tax, employment, identity, and payment endpoint checks remain outside v0.3."
+
+safety_boundary:
+  approved_weight_resolution_required: true
+  evidence_required: true
+  rights_creation_prohibited: true
+  autonomous_payment_prohibited: true
+  held_weight_redistribution_prohibited: true
+  human_approval_required: true
+```
+
+## `policies/default-multi-beneficiary-allocation-policy.example.yaml`
+
+```yaml
+policy_version: "0.3.0"
+
+policy_id: "default-multi-beneficiary-allocation-policy-v0.3"
+
+title: "Default Multi-Beneficiary Allocation Policy"
+
+description: >-
+  Example policy for converting approved contribution weights into provisional
+  multi-beneficiary allocation amounts. This policy does not create rights,
+  resolve disputes, or authorize payment.
+
+allocation_order: "fixed_then_proportional"
+
+fixed_allocations:
+  - allocation_id: "community-fund-allocation"
+    allocation_category: "community_fund"
+    beneficiary_id: "community-fund-001"
+    calculation_mode: "fixed_rate"
+    fixed_rate: 0.01
+    evidence_required: true
+
+  - allocation_id: "platform-operating-fee"
+    allocation_category: "platform_fee"
+    beneficiary_id: "platform-operator-001"
+    calculation_mode: "fixed_rate"
+    fixed_rate: 0.04
+    evidence_required: true
+
+proportional_allocation:
+  source: "approved_contribution_weight_resolution"
+  pool_treatment: "remaining_after_fixed_allocations"
+
+  accepted_weight_statuses:
+    - "included"
+    - "held_for_review"
+
+  held_weight_treatment: "reserve_without_redistribution"
+
+constraints:
+  default_minimum_amount: 0
+  default_maximum_pool_share: 0.75
+
+  evidence_required_for_override: true
+  human_approval_required_for_override: true
+
+rounding:
+  method: "half_up"
+  decimal_places: 0
+
+remainder:
+  strategy: "largest_remainder"
+  allow_unexplained_remainder: false
+
+prohibited_rules:
+  - "create_new_beneficiary_without_evidence"
+  - "change_approved_weight_without_superseding_resolution"
+  - "redistribute_held_weight"
+  - "increase_share_for_visibility"
+  - "increase_share_for_job_title"
+  - "increase_share_for_platform_ownership"
+  - "hide_platform_fee"
+  - "convert_plan_directly_to_payment"
+  - "allow_agent_self_allocation"
+
+approval:
+  human_review_required: true
+```
