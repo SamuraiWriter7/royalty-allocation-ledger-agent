@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Validate v0.1-v0.3 examples for royalty-allocation-ledger-agent."""
+"""
+Validate Royalty Allocation Ledger Agent examples.
+
+Supported specifications:
+- v0.1 Allocation Ledger Record
+- v0.2 Contribution Weight Resolution
+- v0.3 Multi-Beneficiary Allocation Plan
+- v0.4 Dispute and Holdback Ledger
+
+Validation layers:
+1. JSON Schema validation
+2. Cross-reference validation
+3. Record-specific semantic validation
+4. Approval and safety-boundary validation
+"""
 
 from __future__ import annotations
 
@@ -22,42 +36,49 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SemanticValidator = Callable[[dict[str, Any]], list[str]]
+DEFAULT_TOLERANCE = Decimal("0.000001")
 
 
 @dataclass(frozen=True)
 class Target:
+    """A schema/example pair and its semantic validator."""
+
     name: str
     schema: Path
     example: Path
-    validate: SemanticValidator
+    validate: Callable[[dict[str, Any]], list[str]]
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
 
 def load(path: Path) -> Any:
-    with path.open("r", encoding="utf-8") as file:
-        if path.suffix.lower() == ".json":
-            return json.load(file)
-        if path.suffix.lower() in {".yaml", ".yml"}:
-            return yaml.safe_load(file)
-    raise ValueError(f"Unsupported file type: {path}")
+    """Load a JSON or YAML document."""
+
+    text = path.read_text(encoding="utf-8")
+
+    if path.suffix.lower() == ".json":
+        return json.loads(text)
+
+    if path.suffix.lower() in {".yaml", ".yml"}:
+        return yaml.safe_load(text)
+
+    raise ValueError(f"Unsupported file type: {path.suffix}")
 
 
-def number(value: Any, field: str) -> Decimal:
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError) as error:
-        raise ValueError(f"{field} must be numeric: {value!r}") from error
+def schema_errors(
+    document: Any,
+    schema: dict[str, Any],
+) -> list[str]:
+    """Return JSON Schema validation errors."""
 
-
-def near(a: Decimal, b: Decimal, tolerance: Decimal) -> bool:
-    return abs(a - b) <= tolerance
-
-
-def schema_errors(document: Any, schema: dict[str, Any]) -> list[str]:
     validator = Draft202012Validator(
         schema,
         format_checker=FormatChecker(),
     )
+
     errors: list[str] = []
 
     for error in sorted(
@@ -65,504 +86,836 @@ def schema_errors(document: Any, schema: dict[str, Any]) -> list[str]:
         key=lambda item: list(item.absolute_path),
     ):
         path = ".".join(str(part) for part in error.absolute_path)
+        location = path or "<root>"
+
         errors.append(
-            f"[schema-error] {path or '<root>'}: {error.message}"
+            f"[schema-error] {location}: {error.message}"
         )
 
     return errors
 
 
-def source_ids(document: dict[str, Any]) -> set[str]:
-    records = document.get("source_context", {}).get("source_records", [])
+def decimal_value(
+    value: Any,
+    field_name: str,
+) -> Decimal:
+    """Convert a numeric field to Decimal."""
+
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as error:
+        raise ValueError(
+            f"{field_name} must be numeric: {value!r}"
+        ) from error
+
+
+def approximately_equal(
+    left: Decimal,
+    right: Decimal,
+    tolerance: Decimal = DEFAULT_TOLERANCE,
+) -> bool:
+    """Return whether two Decimal values are within tolerance."""
+
+    return abs(left - right) <= tolerance
+
+
+def declared_source_ids(
+    document: dict[str, Any],
+) -> set[str]:
+    """Return source record IDs declared under source_context."""
+
+    source_context = document.get("source_context", {})
+    source_records = source_context.get("source_records", [])
+
+    if not isinstance(source_records, list):
+        return set()
+
     return {
-        str(record.get("record_id"))
-        for record in records
-        if record.get("record_id")
+        str(record["record_id"])
+        for record in source_records
+        if (
+            isinstance(record, dict)
+            and record.get("record_id")
+        )
     }
 
 
-def validate_evidence(
-    refs: list[dict[str, Any]],
-    declared_ids: set[str],
+def validate_evidence_refs(
+    evidence_refs: Any,
+    source_ids: set[str],
     prefix: str,
+    *,
+    required: bool = True,
 ) -> list[str]:
-    if not refs:
-        return [f"[semantic-error] {prefix}: evidence is required"]
+    """Validate evidence references and source-context membership."""
 
     errors: list[str] = []
+
+    if not isinstance(evidence_refs, list):
+        if required:
+            errors.append(
+                f"[semantic-error] {prefix}: must be an array"
+            )
+        return errors
+
+    if required and not evidence_refs:
+        errors.append(
+            f"[semantic-error] {prefix}: "
+            "at least one evidence reference is required"
+        )
+        return errors
+
     seen: set[tuple[str, str, str]] = set()
 
-    for index, ref in enumerate(refs):
-        item = f"{prefix}[{index}]"
-        key = (
-            str(ref.get("record_type")),
-            str(ref.get("record_id")),
-            str(ref.get("relation")),
-        )
+    for index, evidence in enumerate(evidence_refs):
+        item_prefix = f"{prefix}[{index}]"
+
+        if not isinstance(evidence, dict):
+            errors.append(
+                f"[semantic-error] {item_prefix}: "
+                "must be an object"
+            )
+            continue
+
+        record_type = str(evidence.get("record_type", ""))
+        record_id = str(evidence.get("record_id", ""))
+        relation = str(evidence.get("relation", ""))
+        key = (record_type, record_id, relation)
 
         if key in seen:
-            errors.append(f"[semantic-error] {item}: duplicate evidence")
+            errors.append(
+                f"[semantic-error] {item_prefix}: "
+                f"duplicate evidence reference {key}"
+            )
+
         seen.add(key)
 
-        if ref.get("verified") is not True:
-            errors.append(f"[semantic-error] {item}.verified: must be true")
-
-        if str(ref.get("record_id")) not in declared_ids:
+        if evidence.get("verified") is not True:
             errors.append(
-                f"[semantic-error] {item}.record_id: "
-                "not declared in source_context"
+                f"[semantic-error] {item_prefix}.verified: "
+                "must be true"
+            )
+
+        if record_id not in source_ids:
+            errors.append(
+                f"[semantic-error] {item_prefix}.record_id: "
+                f"'{record_id}' is not declared in source_context"
             )
 
     return errors
 
 
-def validate_unique_sources(document: dict[str, Any]) -> list[str]:
+def validate_required_true_fields(
+    record: Any,
+    field_names: list[str],
+    prefix: str,
+) -> list[str]:
+    """Ensure mandatory control fields remain true."""
+
+    if not isinstance(record, dict):
+        return [
+            f"[semantic-error] {prefix}: must be an object"
+        ]
+
     errors: list[str] = []
-    seen: set[str] = set()
-    records = document.get("source_context", {}).get("source_records", [])
 
-    for index, record in enumerate(records):
-        record_id = str(record.get("record_id"))
-        if record_id in seen:
+    for field_name in field_names:
+        if record.get(field_name) is not True:
             errors.append(
-                "[semantic-error] "
-                f"source_context.source_records[{index}].record_id: "
-                f"duplicate source '{record_id}'"
+                f"[semantic-error] {prefix}.{field_name}: "
+                "must remain true"
             )
-        seen.add(record_id)
 
     return errors
 
 
-def validate_approval(
+def validate_approval_state(
     document: dict[str, Any],
     status_field: str,
 ) -> list[str]:
-    approval = document.get("approval", {}).get("status")
-    status = document.get(status_field)
+    """Validate approval status against the record status."""
 
-    if approval == "pending" and status not in {
-        "draft",
-        "pending_human_approval",
-    }:
+    approval = document.get("approval", {})
+    approval_status = (
+        approval.get("status")
+        if isinstance(approval, dict)
+        else None
+    )
+    record_status = document.get(status_field)
+
+    errors: list[str] = []
+
+    if approval_status == "pending":
+        if record_status not in {
+            "draft",
+            "pending_human_approval",
+        }:
+            errors.append(
+                f"[semantic-error] {status_field}: "
+                "pending approval requires 'draft' or "
+                "'pending_human_approval'"
+            )
+
+    elif approval_status == "approved":
+        if record_status != "approved":
+            errors.append(
+                f"[semantic-error] {status_field}: "
+                "approved human review requires 'approved'"
+            )
+
+    elif approval_status == "rejected":
+        if record_status != "rejected":
+            errors.append(
+                f"[semantic-error] {status_field}: "
+                "rejected human review requires 'rejected'"
+            )
+
+    return errors
+
+
+def register_unique(
+    value: str,
+    seen: set[str],
+    prefix: str,
+    label: str,
+) -> list[str]:
+    """Register an identifier and report duplicates."""
+
+    if value in seen:
         return [
-            f"[semantic-error] {status_field}: pending approval mismatch"
+            f"[semantic-error] {prefix}: "
+            f"duplicate {label} '{value}'"
         ]
-    if approval == "approved" and status != "approved":
-        return [
-            f"[semantic-error] {status_field}: approved status mismatch"
-        ]
-    if approval == "rejected" and status != "rejected":
-        return [
-            f"[semantic-error] {status_field}: rejected status mismatch"
-        ]
+
+    seen.add(value)
     return []
 
 
-def validate_boundary(
+# ---------------------------------------------------------------------------
+# v0.1 — Allocation Ledger Record
+# ---------------------------------------------------------------------------
+
+
+def validate_v01(
     document: dict[str, Any],
-    fields: list[str],
 ) -> list[str]:
-    boundary = document.get("safety_boundary", {})
-    return [
-        f"[semantic-error] safety_boundary.{field}: must remain true"
-        for field in fields
-        if boundary.get(field) is not True
-    ]
+    """Validate Allocation Ledger Record semantics."""
 
-
-# v0.1 ---------------------------------------------------------------------
-
-
-def validate_v01(document: dict[str, Any]) -> list[str]:
-    errors = validate_unique_sources(document)
-    declared_ids = source_ids(document)
+    errors: list[str] = []
+    source_ids = declared_source_ids(document)
     beneficiary_ids: set[str] = set()
+
     gross_sum = Decimal("0")
     payable_sum = Decimal("0")
     held_sum = Decimal("0")
 
-    for index, beneficiary in enumerate(document.get("beneficiaries", [])):
+    beneficiaries = document.get("beneficiaries", [])
+
+    if not isinstance(beneficiaries, list):
+        return [
+            "[semantic-error] beneficiaries: must be an array"
+        ]
+
+    for index, beneficiary in enumerate(beneficiaries):
         prefix = f"beneficiaries[{index}]"
-        beneficiary_id = str(beneficiary.get("beneficiary_id"))
 
-        if beneficiary_id in beneficiary_ids:
+        if not isinstance(beneficiary, dict):
             errors.append(
-                f"[semantic-error] {prefix}.beneficiary_id: duplicate"
+                f"[semantic-error] {prefix}: must be an object"
             )
-        beneficiary_ids.add(beneficiary_id)
+            continue
 
-        gross = number(
+        beneficiary_id = str(
+            beneficiary.get("beneficiary_id", "")
+        )
+
+        errors.extend(
+            register_unique(
+                beneficiary_id,
+                beneficiary_ids,
+                f"{prefix}.beneficiary_id",
+                "beneficiary",
+            )
+        )
+
+        gross = decimal_value(
             beneficiary.get("gross_allocation", 0),
             f"{prefix}.gross_allocation",
         )
-        payable = number(
+        payable = decimal_value(
             beneficiary.get("payable_amount", 0),
             f"{prefix}.payable_amount",
         )
-        held = number(
+        held = decimal_value(
             beneficiary.get("held_amount", 0),
             f"{prefix}.held_amount",
         )
+
         gross_sum += gross
         payable_sum += payable
         held_sum += held
 
         if gross != payable + held:
             errors.append(
-                f"[semantic-error] {prefix}: gross must equal payable + held"
+                f"[semantic-error] {prefix}: "
+                "gross_allocation must equal "
+                "payable_amount + held_amount"
             )
 
         errors.extend(
-            validate_evidence(
+            validate_evidence_refs(
                 beneficiary.get("evidence_refs", []),
-                declared_ids,
+                source_ids,
                 f"{prefix}.evidence_refs",
             )
         )
 
-        status = beneficiary.get("allocation_status")
-        reasons = beneficiary.get("hold_reasons", [])
+        hold_reasons = beneficiary.get("hold_reasons", [])
+        allocation_status = beneficiary.get(
+            "allocation_status"
+        )
 
-        if held > 0 and not reasons:
+        if held > 0 and not hold_reasons:
             errors.append(
-                f"[semantic-error] {prefix}.hold_reasons: required"
-            )
-        if held == 0 and reasons:
-            errors.append(
-                f"[semantic-error] {prefix}.hold_reasons: unexpected"
+                f"[semantic-error] {prefix}.hold_reasons: "
+                "positive held_amount requires a hold reason"
             )
 
-        if gross == 0:
-            expected = "rejected"
-        elif payable > 0 and held == 0:
-            expected = "payable"
+        if held == 0 and hold_reasons:
+            errors.append(
+                f"[semantic-error] {prefix}.hold_reasons: "
+                "must be absent when held_amount is zero"
+            )
+
+        expected_status: str | None = None
+
+        if payable > 0 and held == 0:
+            expected_status = "payable"
         elif payable > 0 and held > 0:
-            expected = "partially_held"
-        else:
-            expected = "fully_held"
+            expected_status = "partially_held"
+        elif payable == 0 and held > 0:
+            expected_status = "fully_held"
 
-        if status != expected:
+        if (
+            expected_status is not None
+            and allocation_status != expected_status
+        ):
             errors.append(
                 f"[semantic-error] {prefix}.allocation_status: "
-                f"expected '{expected}'"
+                f"expected '{expected_status}'"
+            )
+
+        if (
+            allocation_status == "rejected"
+            and gross != 0
+        ):
+            errors.append(
+                f"[semantic-error] {prefix}: "
+                "rejected allocation must have zero gross amount"
             )
 
     totals = document.get("totals", {})
     pool = document.get("royalty_pool", {})
-    declared_gross = number(
+
+    declared_gross = decimal_value(
         totals.get("gross_allocated", 0),
         "totals.gross_allocated",
     )
-    declared_payable = number(
+    declared_payable = decimal_value(
         totals.get("payable_total", 0),
         "totals.payable_total",
     )
-    declared_held = number(
+    declared_held = decimal_value(
         totals.get("held_total", 0),
         "totals.held_total",
     )
-    unallocated = number(
+    unallocated = decimal_value(
         totals.get("unallocated_total", 0),
         "totals.unallocated_total",
     )
-    rounding = number(
+    rounding_adjustment = decimal_value(
         totals.get("rounding_adjustment", 0),
         "totals.rounding_adjustment",
     )
-    gross_pool = number(
+
+    gross_pool = decimal_value(
         pool.get("gross_amount", 0),
         "royalty_pool.gross_amount",
     )
-    distributable = number(
+    distributable = decimal_value(
         pool.get("distributable_amount", 0),
         "royalty_pool.distributable_amount",
     )
-    excluded = number(
+    excluded_amount = decimal_value(
         pool.get("excluded_amount", 0),
         "royalty_pool.excluded_amount",
     )
 
-    checks = [
-        ("gross_allocated", declared_gross, gross_sum),
-        ("payable_total", declared_payable, payable_sum),
-        ("held_total", declared_held, held_sum),
-    ]
-    for field, declared, calculated in checks:
-        if declared != calculated:
-            errors.append(
-                f"[semantic-error] totals.{field}: "
-                f"declared {declared}, calculated {calculated}"
-            )
+    if gross_sum != declared_gross:
+        errors.append(
+            "[semantic-error] totals.gross_allocated: "
+            f"declared {declared_gross}, calculated {gross_sum}"
+        )
+
+    if payable_sum != declared_payable:
+        errors.append(
+            "[semantic-error] totals.payable_total: "
+            f"declared {declared_payable}, calculated {payable_sum}"
+        )
+
+    if held_sum != declared_held:
+        errors.append(
+            "[semantic-error] totals.held_total: "
+            f"declared {declared_held}, calculated {held_sum}"
+        )
 
     if declared_gross != declared_payable + declared_held:
-        errors.append("[semantic-error] totals: gross/payable/held mismatch")
-    if distributable != declared_gross + unallocated + rounding:
-        errors.append("[semantic-error] royalty pool conservation failed")
-    if gross_pool != distributable + excluded:
-        errors.append("[semantic-error] gross pool conservation failed")
+        errors.append(
+            "[semantic-error] totals: "
+            "gross_allocated must equal payable_total + held_total"
+        )
 
-    errors.extend(validate_approval(document, "ledger_status"))
+    expected_distributable = (
+        declared_gross
+        + unallocated
+        + rounding_adjustment
+    )
+
+    if distributable != expected_distributable:
+        errors.append(
+            "[semantic-error] royalty_pool.distributable_amount: "
+            "must equal gross_allocated + unallocated_total "
+            "+ rounding_adjustment"
+        )
+
+    if distributable > gross_pool:
+        errors.append(
+            "[semantic-error] royalty_pool.distributable_amount: "
+            "must not exceed gross_amount"
+        )
+
+    if gross_pool != distributable + excluded_amount:
+        errors.append(
+            "[semantic-error] royalty_pool: "
+            "gross_amount must equal "
+            "distributable_amount + excluded_amount"
+        )
+
     errors.extend(
-        validate_boundary(
+        validate_approval_state(
             document,
+            "ledger_status",
+        )
+    )
+
+    errors.extend(
+        validate_required_true_fields(
+            document.get("safety_boundary", {}),
             [
                 "evidence_required",
                 "rights_creation_prohibited",
                 "autonomous_payment_prohibited",
                 "human_approval_required",
             ],
+            "safety_boundary",
         )
     )
+
     return errors
 
 
-# v0.2 ---------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# v0.2 — Contribution Weight Resolution
+# ---------------------------------------------------------------------------
 
 
-def validate_v02(document: dict[str, Any]) -> list[str]:
-    errors = validate_unique_sources(document)
-    declared_ids = source_ids(document)
+def validate_v02(
+    document: dict[str, Any],
+) -> list[str]:
+    """Validate Contribution Weight Resolution semantics."""
+
+    errors: list[str] = []
+    source_ids = declared_source_ids(document)
+    beneficiary_ids: set[str] = set()
+
     method = document.get("resolution_method", {})
     precision = int(method.get("precision", 6))
     tolerance = Decimal("1").scaleb(-precision)
-    target = number(
+    normalization_target = decimal_value(
         method.get("normalization_target", 1),
         "resolution_method.normalization_target",
     )
-    held_treatment = method.get("held_weight_treatment")
+    held_treatment = method.get(
+        "held_weight_treatment"
+    )
 
-    beneficiary_ids: set[str] = set()
     component_total = Decimal("0")
     adjustment_total = Decimal("0")
     adjusted_total = Decimal("0")
-    weight_total = Decimal("0")
+    normalized_total = Decimal("0")
     eligible_total = Decimal("0")
-    counts = {"included": 0, "held_for_review": 0, "excluded": 0}
-    rows: list[tuple[int, str, Decimal, Decimal]] = []
 
-    for index, beneficiary in enumerate(document.get("beneficiaries", [])):
+    included_count = 0
+    held_count = 0
+    excluded_count = 0
+
+    beneficiary_values: list[
+        tuple[int, str, Decimal, Decimal]
+    ] = []
+
+    for index, beneficiary in enumerate(
+        document.get("beneficiaries", [])
+    ):
         prefix = f"beneficiaries[{index}]"
-        beneficiary_id = str(beneficiary.get("beneficiary_id"))
-        status = str(beneficiary.get("resolution_status"))
+        beneficiary_id = str(
+            beneficiary.get("beneficiary_id", "")
+        )
 
-        if beneficiary_id in beneficiary_ids:
-            errors.append(
-                f"[semantic-error] {prefix}.beneficiary_id: duplicate"
+        errors.extend(
+            register_unique(
+                beneficiary_id,
+                beneficiary_ids,
+                f"{prefix}.beneficiary_id",
+                "beneficiary",
             )
-        beneficiary_ids.add(beneficiary_id)
+        )
 
         for ref_index, record_id in enumerate(
             beneficiary.get("attribution_refs", [])
         ):
-            if str(record_id) not in declared_ids:
+            if str(record_id) not in source_ids:
                 errors.append(
                     f"[semantic-error] "
-                    f"{prefix}.attribution_refs[{ref_index}]: undeclared"
+                    f"{prefix}.attribution_refs[{ref_index}]: "
+                    f"'{record_id}' is not declared in source_context"
                 )
 
-        component_sum = Decimal("0")
+        beneficiary_component_total = Decimal("0")
+
         for component_index, component in enumerate(
             beneficiary.get("components", [])
         ):
-            item = f"{prefix}.components[{component_index}]"
-            raw = number(component.get("raw_score", 0), f"{item}.raw_score")
-            multiplier = number(
+            component_prefix = (
+                f"{prefix}.components[{component_index}]"
+            )
+
+            raw_score = decimal_value(
+                component.get("raw_score", 0),
+                f"{component_prefix}.raw_score",
+            )
+            multiplier = decimal_value(
                 component.get("policy_multiplier", 0),
-                f"{item}.policy_multiplier",
+                f"{component_prefix}.policy_multiplier",
             )
-            weighted = number(
+            weighted_score = decimal_value(
                 component.get("weighted_score", 0),
-                f"{item}.weighted_score",
-            )
-            if not near(weighted, raw * multiplier, tolerance):
-                errors.append(
-                    f"[semantic-error] {item}.weighted_score: invalid"
-                )
-            component_sum += weighted
-            errors.extend(
-                validate_evidence(
-                    component.get("evidence_refs", []),
-                    declared_ids,
-                    f"{item}.evidence_refs",
-                )
+                f"{component_prefix}.weighted_score",
             )
 
-        declared_component = number(
-            beneficiary.get("component_total", 0),
-            f"{prefix}.component_total",
-        )
-        if not near(declared_component, component_sum, tolerance):
-            errors.append(
-                f"[semantic-error] {prefix}.component_total: invalid"
-            )
+            expected_weighted = raw_score * multiplier
 
-        adjustment_sum = Decimal("0")
-        for adjustment_index, adjustment in enumerate(
-            beneficiary.get("adjustments", [])
-        ):
-            item = f"{prefix}.adjustments[{adjustment_index}]"
-            adjustment_sum += number(
-                adjustment.get("delta_score", 0),
-                f"{item}.delta_score",
-            )
-            if str(adjustment.get("policy_ref")) not in declared_ids:
-                errors.append(
-                    f"[semantic-error] {item}.policy_ref: undeclared"
-                )
-            errors.extend(
-                validate_evidence(
-                    adjustment.get("evidence_refs", []),
-                    declared_ids,
-                    f"{item}.evidence_refs",
-                )
-            )
-
-        adjusted = number(
-            beneficiary.get("adjusted_score", 0),
-            f"{prefix}.adjusted_score",
-        )
-        if not near(
-            adjusted,
-            declared_component + adjustment_sum,
-            tolerance,
-        ):
-            errors.append(
-                f"[semantic-error] {prefix}.adjusted_score: invalid"
-            )
-
-        weight = number(
-            beneficiary.get("normalized_weight", 0),
-            f"{prefix}.normalized_weight",
-        )
-        errors.extend(
-            validate_evidence(
-                beneficiary.get("evidence_refs", []),
-                declared_ids,
-                f"{prefix}.evidence_refs",
-            )
-        )
-
-        hold_reasons = beneficiary.get("hold_reasons", [])
-        exclusion_reasons = beneficiary.get("exclusion_reasons", [])
-        counts[status] = counts.get(status, 0) + 1
-
-        if status == "included":
-            eligible_total += adjusted
-            if hold_reasons or exclusion_reasons:
-                errors.append(f"[semantic-error] {prefix}: invalid reasons")
-        elif status == "held_for_review":
-            if not hold_reasons:
-                errors.append(
-                    f"[semantic-error] {prefix}.hold_reasons: required"
-                )
-            if exclusion_reasons:
-                errors.append(
-                    f"[semantic-error] {prefix}.exclusion_reasons: unexpected"
-                )
-            if held_treatment == "reserve_in_normalization":
-                eligible_total += adjusted
-        elif status == "excluded":
-            if not exclusion_reasons:
-                errors.append(
-                    f"[semantic-error] {prefix}.exclusion_reasons: required"
-                )
-            if adjusted != 0 or weight != 0:
-                errors.append(
-                    f"[semantic-error] {prefix}: excluded score must be zero"
-                )
-
-        component_total += declared_component
-        adjustment_total += adjustment_sum
-        adjusted_total += adjusted
-        weight_total += weight
-        rows.append((index, status, adjusted, weight))
-
-    if eligible_total <= 0:
-        errors.append("[semantic-error] eligible score must be positive")
-    else:
-        for index, status, adjusted, weight in rows:
-            eligible = status == "included" or (
-                status == "held_for_review"
-                and held_treatment == "reserve_in_normalization"
-            )
-            if eligible and not near(
-                weight,
-                adjusted / eligible_total,
+            if not approximately_equal(
+                weighted_score,
+                expected_weighted,
                 tolerance,
             ):
                 errors.append(
                     f"[semantic-error] "
-                    f"beneficiaries[{index}].normalized_weight: invalid"
+                    f"{component_prefix}.weighted_score: "
+                    f"expected {expected_weighted}, "
+                    f"found {weighted_score}"
                 )
-            if (
+
+            beneficiary_component_total += weighted_score
+
+            errors.extend(
+                validate_evidence_refs(
+                    component.get("evidence_refs", []),
+                    source_ids,
+                    f"{component_prefix}.evidence_refs",
+                )
+            )
+
+        declared_component_total = decimal_value(
+            beneficiary.get("component_total", 0),
+            f"{prefix}.component_total",
+        )
+
+        if not approximately_equal(
+            declared_component_total,
+            beneficiary_component_total,
+            tolerance,
+        ):
+            errors.append(
+                f"[semantic-error] {prefix}.component_total: "
+                f"declared {declared_component_total}, "
+                f"calculated {beneficiary_component_total}"
+            )
+
+        beneficiary_adjustment_total = Decimal("0")
+
+        for adjustment_index, adjustment in enumerate(
+            beneficiary.get("adjustments", [])
+        ):
+            adjustment_prefix = (
+                f"{prefix}.adjustments[{adjustment_index}]"
+            )
+
+            delta_score = decimal_value(
+                adjustment.get("delta_score", 0),
+                f"{adjustment_prefix}.delta_score",
+            )
+            beneficiary_adjustment_total += delta_score
+
+            policy_ref = str(
+                adjustment.get("policy_ref", "")
+            )
+
+            if policy_ref not in source_ids:
+                errors.append(
+                    f"[semantic-error] "
+                    f"{adjustment_prefix}.policy_ref: "
+                    f"'{policy_ref}' is not declared in source_context"
+                )
+
+            errors.extend(
+                validate_evidence_refs(
+                    adjustment.get("evidence_refs", []),
+                    source_ids,
+                    f"{adjustment_prefix}.evidence_refs",
+                )
+            )
+
+        adjusted_score = decimal_value(
+            beneficiary.get("adjusted_score", 0),
+            f"{prefix}.adjusted_score",
+        )
+
+        expected_adjusted = (
+            declared_component_total
+            + beneficiary_adjustment_total
+        )
+
+        if not approximately_equal(
+            adjusted_score,
+            expected_adjusted,
+            tolerance,
+        ):
+            errors.append(
+                f"[semantic-error] {prefix}.adjusted_score: "
+                f"expected {expected_adjusted}, "
+                f"found {adjusted_score}"
+            )
+
+        normalized_weight = decimal_value(
+            beneficiary.get("normalized_weight", 0),
+            f"{prefix}.normalized_weight",
+        )
+
+        errors.extend(
+            validate_evidence_refs(
+                beneficiary.get("evidence_refs", []),
+                source_ids,
+                f"{prefix}.evidence_refs",
+            )
+        )
+
+        status = str(
+            beneficiary.get("resolution_status", "")
+        )
+
+        if status == "included":
+            included_count += 1
+            eligible_total += adjusted_score
+
+            if beneficiary.get("hold_reasons"):
+                errors.append(
+                    f"[semantic-error] {prefix}.hold_reasons: "
+                    "included beneficiary must not have hold reasons"
+                )
+
+        elif status == "held_for_review":
+            held_count += 1
+
+            if not beneficiary.get("hold_reasons"):
+                errors.append(
+                    f"[semantic-error] {prefix}.hold_reasons: "
+                    "held beneficiary requires a hold reason"
+                )
+
+            if held_treatment == "reserve_in_normalization":
+                eligible_total += adjusted_score
+
+        elif status == "excluded":
+            excluded_count += 1
+
+            if not beneficiary.get("exclusion_reasons"):
+                errors.append(
+                    f"[semantic-error] "
+                    f"{prefix}.exclusion_reasons: "
+                    "excluded beneficiary requires a reason"
+                )
+
+            if adjusted_score != 0:
+                errors.append(
+                    f"[semantic-error] {prefix}.adjusted_score: "
+                    "excluded beneficiary must have zero score"
+                )
+
+            if normalized_weight != 0:
+                errors.append(
+                    f"[semantic-error] "
+                    f"{prefix}.normalized_weight: "
+                    "excluded beneficiary must have zero weight"
+                )
+
+        component_total += declared_component_total
+        adjustment_total += beneficiary_adjustment_total
+        adjusted_total += adjusted_score
+        normalized_total += normalized_weight
+
+        beneficiary_values.append(
+            (
+                index,
+                status,
+                adjusted_score,
+                normalized_weight,
+            )
+        )
+
+    if eligible_total <= 0:
+        errors.append(
+            "[semantic-error] beneficiaries: "
+            "eligible adjusted score must be positive"
+        )
+    else:
+        for (
+            index,
+            status,
+            adjusted_score,
+            normalized_weight,
+        ) in beneficiary_values:
+            eligible = (
+                status == "included"
+                or (
+                    status == "held_for_review"
+                    and held_treatment
+                    == "reserve_in_normalization"
+                )
+            )
+
+            if eligible:
+                expected_weight = (
+                    adjusted_score / eligible_total
+                )
+
+                if not approximately_equal(
+                    normalized_weight,
+                    expected_weight,
+                    tolerance,
+                ):
+                    errors.append(
+                        f"[semantic-error] "
+                        f"beneficiaries[{index}].normalized_weight: "
+                        f"expected approximately {expected_weight}, "
+                        f"found {normalized_weight}"
+                    )
+
+            elif (
                 status == "held_for_review"
-                and not eligible
-                and weight != 0
+                and normalized_weight != 0
             ):
                 errors.append(
                     f"[semantic-error] "
-                    f"beneficiaries[{index}].normalized_weight: must be zero"
+                    f"beneficiaries[{index}].normalized_weight: "
+                    "must be zero when held weights are excluded"
                 )
 
     totals = document.get("totals", {})
-    checks = [
-        (
-            "component_total",
-            number(totals.get("component_total", 0), "totals.component_total"),
-            component_total,
-        ),
-        (
-            "adjustment_total",
-            number(totals.get("adjustment_total", 0), "totals.adjustment_total"),
-            adjustment_total,
-        ),
-        (
-            "adjusted_score_total",
-            number(
-                totals.get("adjusted_score_total", 0),
-                "totals.adjusted_score_total",
-            ),
-            adjusted_total,
-        ),
-        (
-            "normalized_weight_total",
-            number(
-                totals.get("normalized_weight_total", 0),
-                "totals.normalized_weight_total",
-            ),
-            weight_total,
-        ),
+
+    total_checks = [
+        ("component_total", component_total),
+        ("adjustment_total", adjustment_total),
+        ("adjusted_score_total", adjusted_total),
+        ("normalized_weight_total", normalized_total),
     ]
-    for field, declared, calculated in checks:
-        if not near(declared, calculated, tolerance):
+
+    for field_name, calculated in total_checks:
+        declared = decimal_value(
+            totals.get(field_name, 0),
+            f"totals.{field_name}",
+        )
+
+        if not approximately_equal(
+            declared,
+            calculated,
+            tolerance,
+        ):
             errors.append(
-                f"[semantic-error] totals.{field}: "
+                f"[semantic-error] totals.{field_name}: "
                 f"declared {declared}, calculated {calculated}"
             )
 
-    declared_weight = checks[-1][1]
-    residual = number(
+    declared_normalized_total = decimal_value(
+        totals.get("normalized_weight_total", 0),
+        "totals.normalized_weight_total",
+    )
+    declared_residual = decimal_value(
         totals.get("normalization_residual", 0),
         "totals.normalization_residual",
     )
-    if not near(residual, target - declared_weight, tolerance):
-        errors.append("[semantic-error] normalization_residual: invalid")
-    if not near(declared_weight, target, tolerance):
-        errors.append("[semantic-error] normalized weights must total 1")
+    expected_residual = (
+        normalization_target
+        - declared_normalized_total
+    )
 
-    for status, field in [
-        ("included", "included_count"),
-        ("held_for_review", "held_count"),
-        ("excluded", "excluded_count"),
-    ]:
-        if int(totals.get(field, 0)) != counts.get(status, 0):
-            errors.append(f"[semantic-error] totals.{field}: invalid")
+    if not approximately_equal(
+        declared_residual,
+        expected_residual,
+        tolerance,
+    ):
+        errors.append(
+            "[semantic-error] totals.normalization_residual: "
+            f"expected {expected_residual}, "
+            f"found {declared_residual}"
+        )
 
-    errors.extend(validate_approval(document, "resolution_status"))
+    if not approximately_equal(
+        declared_normalized_total,
+        normalization_target,
+        tolerance,
+    ):
+        errors.append(
+            "[semantic-error] totals.normalized_weight_total: "
+            f"must equal normalization target "
+            f"{normalization_target}"
+        )
+
+    count_checks = [
+        ("included_count", included_count),
+        ("held_count", held_count),
+        ("excluded_count", excluded_count),
+    ]
+
+    for field_name, calculated in count_checks:
+        declared = int(totals.get(field_name, 0))
+
+        if declared != calculated:
+            errors.append(
+                f"[semantic-error] totals.{field_name}: "
+                f"declared {declared}, calculated {calculated}"
+            )
+
     errors.extend(
-        validate_boundary(
+        validate_approval_state(
             document,
+            "resolution_status",
+        )
+    )
+
+    errors.extend(
+        validate_required_true_fields(
+            document.get("safety_boundary", {}),
             [
                 "verified_attribution_required",
                 "attribution_rewrite_prohibited",
@@ -570,299 +923,543 @@ def validate_v02(document: dict[str, Any]) -> list[str]:
                 "autonomous_payment_prohibited",
                 "human_approval_required",
             ],
+            "safety_boundary",
         )
     )
+
     return errors
 
 
-# v0.3 ---------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# v0.3 — Multi-Beneficiary Allocation Plan
+# ---------------------------------------------------------------------------
 
 
 def rounding_mode(method: str) -> str:
+    """Map a policy rounding name to Decimal rounding mode."""
+
     modes = {
         "half_up": ROUND_HALF_UP,
         "half_even": ROUND_HALF_EVEN,
         "floor": ROUND_FLOOR,
         "ceiling": ROUND_CEILING,
     }
+
     if method not in modes:
-        raise ValueError(f"Unsupported rounding method: {method}")
+        raise ValueError(
+            f"Unsupported rounding method: {method}"
+        )
+
     return modes[method]
 
 
-def round_value(value: Decimal, places: int, method: str) -> Decimal:
-    quantum = Decimal("1").scaleb(-places)
-    return value.quantize(quantum, rounding=rounding_mode(method))
+def rounded_value(
+    value: Decimal,
+    decimal_places: int,
+    method: str,
+) -> Decimal:
+    """Round a value using the declared allocation policy."""
 
+    quantum = Decimal("1").scaleb(-decimal_places)
 
-def validate_v03(document: dict[str, Any]) -> list[str]:
-    errors = validate_unique_sources(document)
-    declared_ids = source_ids(document)
-    context = document.get("source_context", {})
-    policy = document.get("policy_application", {})
-    pool = document.get("royalty_pool", {})
-
-    resolution_id = str(context.get("weight_resolution_id", ""))
-    if str(policy.get("policy_id", "")) != str(
-        context.get("allocation_policy_id", "")
-    ):
-        errors.append("[semantic-error] policy_id mismatch")
-    if str(pool.get("pool_id", "")) != str(
-        context.get("royalty_pool_record_id", "")
-    ):
-        errors.append("[semantic-error] pool_id mismatch")
-
-    rounding = policy.get("rounding_policy", {})
-    method = str(rounding.get("method", "half_up"))
-    places = int(rounding.get("decimal_places", 0))
-    tolerance = Decimal("1").scaleb(-(places + 4))
-
-    distributable = number(
-        pool.get("distributable_amount", 0),
-        "royalty_pool.distributable_amount",
+    return value.quantize(
+        quantum,
+        rounding=rounding_mode(method),
     )
-    fixed_policy = number(
-        policy.get("fixed_allocation_total", 0),
-        "policy_application.fixed_allocation_total",
-    )
-    proportional_pool = number(
-        policy.get("proportional_pool_amount", 0),
-        "policy_application.proportional_pool_amount",
-    )
-    if not near(distributable, fixed_policy + proportional_pool, tolerance):
-        errors.append("[semantic-error] policy pool conservation failed")
 
+
+def validate_v03(
+    document: dict[str, Any],
+) -> list[str]:
+    """Validate Multi-Beneficiary Allocation Plan semantics."""
+
+    errors: list[str] = []
+    source_ids = declared_source_ids(document)
     beneficiary_ids: set[str] = set()
+
+    source_context = document.get("source_context", {})
+    weight_resolution_id = str(
+        source_context.get("weight_resolution_id", "")
+    )
+
+    policy = document.get("policy_application", {})
+    rounding_policy = policy.get(
+        "rounding_policy",
+        {},
+    )
+    rounding_method_name = str(
+        rounding_policy.get("method", "half_up")
+    )
+    decimal_places = int(
+        rounding_policy.get("decimal_places", 0)
+    )
+    tolerance = Decimal("1").scaleb(
+        -(decimal_places + 4)
+    )
+
     fixed_total = Decimal("0")
     proportional_total = Decimal("0")
     final_total = Decimal("0")
     payable_total = Decimal("0")
     reserved_total = Decimal("0")
-    weight_total = Decimal("0")
+    proportional_weight_total = Decimal("0")
 
-    for index, beneficiary in enumerate(document.get("beneficiaries", [])):
+    for index, beneficiary in enumerate(
+        document.get("beneficiaries", [])
+    ):
         prefix = f"beneficiaries[{index}]"
-        beneficiary_id = str(beneficiary.get("beneficiary_id"))
-        if beneficiary_id in beneficiary_ids:
-            errors.append(
-                f"[semantic-error] {prefix}.beneficiary_id: duplicate"
-            )
-        beneficiary_ids.add(beneficiary_id)
+        beneficiary_id = str(
+            beneficiary.get("beneficiary_id", "")
+        )
 
-        mode = str(beneficiary.get("allocation_mode"))
-        state = str(beneficiary.get("plan_state"))
-        calc = beneficiary.get("calculation", {})
-        basis = number(
-            calc.get("basis_amount", 0),
+        errors.extend(
+            register_unique(
+                beneficiary_id,
+                beneficiary_ids,
+                f"{prefix}.beneficiary_id",
+                "beneficiary",
+            )
+        )
+
+        mode = str(
+            beneficiary.get("allocation_mode", "")
+        )
+        state = str(
+            beneficiary.get("plan_state", "")
+        )
+        calculation = beneficiary.get(
+            "calculation",
+            {},
+        )
+
+        basis_amount = decimal_value(
+            calculation.get("basis_amount", 0),
             f"{prefix}.calculation.basis_amount",
         )
-        raw = number(
-            calc.get("raw_amount", 0),
+        raw_amount = decimal_value(
+            calculation.get("raw_amount", 0),
             f"{prefix}.calculation.raw_amount",
         )
-        constraint = number(
-            calc.get("constraint_adjustment", 0),
+        constraint_adjustment = decimal_value(
+            calculation.get("constraint_adjustment", 0),
             f"{prefix}.calculation.constraint_adjustment",
         )
-        rounded = number(
-            calc.get("rounded_amount", 0),
+        declared_rounded = decimal_value(
+            calculation.get("rounded_amount", 0),
             f"{prefix}.calculation.rounded_amount",
         )
-        remainder = number(
-            calc.get("remainder_adjustment", 0),
+        remainder_adjustment = decimal_value(
+            calculation.get("remainder_adjustment", 0),
             f"{prefix}.calculation.remainder_adjustment",
         )
-        final = number(
-            calc.get("final_planned_amount", 0),
+        final_amount = decimal_value(
+            calculation.get("final_planned_amount", 0),
             f"{prefix}.calculation.final_planned_amount",
         )
 
         expected_raw: Decimal | None = None
+
         if mode == "fixed_amount":
-            expected_raw = number(
-                calc.get("fixed_amount", 0),
+            expected_raw = decimal_value(
+                calculation.get("fixed_amount", 0),
                 f"{prefix}.calculation.fixed_amount",
             )
+
         elif mode == "fixed_rate":
-            rate = number(
-                calc.get("fixed_rate", 0),
+            fixed_rate = decimal_value(
+                calculation.get("fixed_rate", 0),
                 f"{prefix}.calculation.fixed_rate",
             )
-            expected_raw = basis * rate
-            if not near(basis, distributable, tolerance):
-                errors.append(
-                    f"[semantic-error] {prefix}.basis_amount: invalid"
-                )
-        elif mode in {"proportional_weight", "pooled_weight"}:
-            weight = number(
-                calc.get("normalized_weight", 0),
+            expected_raw = basis_amount * fixed_rate
+
+        elif mode in {
+            "proportional_weight",
+            "pooled_weight",
+        }:
+            normalized_weight = decimal_value(
+                calculation.get("normalized_weight", 0),
                 f"{prefix}.calculation.normalized_weight",
             )
-            source = beneficiary.get("source_weight_ref", {})
-            source_weight = number(
-                source.get("normalized_weight", 0),
-                f"{prefix}.source_weight_ref.normalized_weight",
+            source_weight = beneficiary.get(
+                "source_weight_ref",
+                {},
             )
-            if str(source.get("resolution_id", "")) != resolution_id:
+            source_resolution_id = str(
+                source_weight.get("resolution_id", "")
+            )
+            source_beneficiary_id = str(
+                source_weight.get("beneficiary_id", "")
+            )
+            source_status = str(
+                source_weight.get("resolution_status", "")
+            )
+            source_normalized_weight = decimal_value(
+                source_weight.get("normalized_weight", 0),
+                (
+                    f"{prefix}.source_weight_ref."
+                    "normalized_weight"
+                ),
+            )
+
+            if source_resolution_id != weight_resolution_id:
                 errors.append(
-                    f"[semantic-error] {prefix}.resolution_id: mismatch"
+                    f"[semantic-error] "
+                    f"{prefix}.source_weight_ref.resolution_id: "
+                    "must match source_context.weight_resolution_id"
                 )
-            if str(source.get("beneficiary_id", "")) != beneficiary_id:
+
+            if source_beneficiary_id != beneficiary_id:
                 errors.append(
-                    f"[semantic-error] {prefix}.source beneficiary: mismatch"
+                    f"[semantic-error] "
+                    f"{prefix}.source_weight_ref.beneficiary_id: "
+                    "must match beneficiary_id"
                 )
-            if not near(weight, source_weight, tolerance):
+
+            if not approximately_equal(
+                normalized_weight,
+                source_normalized_weight,
+                tolerance,
+            ):
                 errors.append(
-                    f"[semantic-error] {prefix}.normalized_weight: mismatch"
+                    f"[semantic-error] "
+                    f"{prefix}.calculation.normalized_weight: "
+                    "must match source_weight_ref.normalized_weight"
                 )
-            if not near(basis, proportional_pool, tolerance):
-                errors.append(
-                    f"[semantic-error] {prefix}.basis_amount: invalid"
-                )
+
             if (
-                source.get("resolution_status") == "held_for_review"
+                source_status == "held_for_review"
                 and state != "reserved_for_review"
             ):
                 errors.append(
                     f"[semantic-error] {prefix}.plan_state: "
-                    "held weight must remain reserved"
+                    "held source weight must remain reserved"
                 )
-            expected_raw = basis * weight
-            weight_total += weight
-        elif mode == "remainder_assignment":
-            expected_raw = raw
 
-        if expected_raw is not None and not near(
-            raw,
-            expected_raw,
+            expected_raw = (
+                basis_amount * normalized_weight
+            )
+            proportional_weight_total += (
+                normalized_weight
+            )
+
+        elif mode == "remainder_assignment":
+            expected_raw = raw_amount
+
+        if (
+            expected_raw is not None
+            and not approximately_equal(
+                raw_amount,
+                expected_raw,
+                tolerance,
+            )
+        ):
+            errors.append(
+                f"[semantic-error] "
+                f"{prefix}.calculation.raw_amount: "
+                f"expected {expected_raw}, found {raw_amount}"
+            )
+
+        constrained_amount = (
+            raw_amount + constraint_adjustment
+        )
+
+        minimum_amount = calculation.get(
+            "minimum_amount"
+        )
+        maximum_amount = calculation.get(
+            "maximum_amount"
+        )
+
+        if minimum_amount is not None:
+            minimum = decimal_value(
+                minimum_amount,
+                f"{prefix}.calculation.minimum_amount",
+            )
+
+            if constrained_amount < minimum:
+                errors.append(
+                    f"[semantic-error] {prefix}.calculation: "
+                    "amount remains below minimum_amount"
+                )
+
+        if maximum_amount is not None:
+            maximum = decimal_value(
+                maximum_amount,
+                f"{prefix}.calculation.maximum_amount",
+            )
+
+            if constrained_amount > maximum:
+                errors.append(
+                    f"[semantic-error] {prefix}.calculation: "
+                    "amount exceeds maximum_amount"
+                )
+
+        expected_rounded = rounded_value(
+            constrained_amount,
+            decimal_places,
+            rounding_method_name,
+        )
+
+        if not approximately_equal(
+            declared_rounded,
+            expected_rounded,
             tolerance,
         ):
             errors.append(
-                f"[semantic-error] {prefix}.raw_amount: invalid"
+                f"[semantic-error] "
+                f"{prefix}.calculation.rounded_amount: "
+                f"expected {expected_rounded}, "
+                f"found {declared_rounded}"
             )
 
-        constrained = raw + constraint
-        expected_rounded = round_value(constrained, places, method)
-        if not near(rounded, expected_rounded, tolerance):
+        expected_final = (
+            declared_rounded
+            + remainder_adjustment
+        )
+
+        if not approximately_equal(
+            final_amount,
+            expected_final,
+            tolerance,
+        ):
             errors.append(
-                f"[semantic-error] {prefix}.rounded_amount: invalid"
-            )
-        if not near(final, rounded + remainder, tolerance):
-            errors.append(
-                f"[semantic-error] {prefix}.final_planned_amount: invalid"
+                f"[semantic-error] "
+                f"{prefix}.calculation.final_planned_amount: "
+                "must equal rounded_amount + remainder_adjustment"
             )
 
-        reasons = beneficiary.get("reserve_reasons", [])
         if state == "reserved_for_review":
-            if not reasons:
+            if not beneficiary.get("reserve_reasons"):
                 errors.append(
-                    f"[semantic-error] {prefix}.reserve_reasons: required"
+                    f"[semantic-error] {prefix}.reserve_reasons: "
+                    "reserved allocation requires a reason"
                 )
-            reserved_total += final
+
+            reserved_total += final_amount
+
         elif state == "planned_payable":
-            if reasons:
+            payable_total += final_amount
+
+        elif state == "excluded":
+            if final_amount != 0:
                 errors.append(
-                    f"[semantic-error] {prefix}.reserve_reasons: unexpected"
+                    f"[semantic-error] {prefix}: "
+                    "excluded allocation must have zero final amount"
                 )
-            payable_total += final
-        elif state == "excluded" and final != 0:
-            errors.append(
-                f"[semantic-error] {prefix}: excluded amount must be zero"
-            )
 
         errors.extend(
-            validate_evidence(
+            validate_evidence_refs(
                 beneficiary.get("evidence_refs", []),
-                declared_ids,
+                source_ids,
                 f"{prefix}.evidence_refs",
             )
         )
 
-        if mode in {"fixed_amount", "fixed_rate", "remainder_assignment"}:
-            fixed_total += final
-        elif mode in {"proportional_weight", "pooled_weight"}:
-            proportional_total += final
+        if mode in {
+            "fixed_amount",
+            "fixed_rate",
+            "remainder_assignment",
+        }:
+            fixed_total += final_amount
 
-        final_total += final
+        elif mode in {
+            "proportional_weight",
+            "pooled_weight",
+        }:
+            proportional_total += final_amount
 
-    if not near(weight_total, Decimal("1"), tolerance):
-        errors.append("[semantic-error] proportional weights must total 1")
+        final_total += final_amount
+
+    if not approximately_equal(
+        proportional_weight_total,
+        Decimal("1"),
+        tolerance,
+    ):
+        errors.append(
+            "[semantic-error] beneficiaries: "
+            "proportional normalized weights must total 1.0"
+        )
 
     totals = document.get("totals", {})
-    declared_fixed = number(
+    pool = document.get("royalty_pool", {})
+
+    declared_fixed = decimal_value(
         totals.get("fixed_allocation_total", 0),
         "totals.fixed_allocation_total",
     )
-    declared_pool = number(
+    declared_proportional_pool = decimal_value(
         totals.get("proportional_pool_amount", 0),
         "totals.proportional_pool_amount",
     )
-    declared_proportional = number(
+    declared_proportional = decimal_value(
         totals.get("proportional_allocation_total", 0),
         "totals.proportional_allocation_total",
     )
-    declared_final = number(
+    declared_final = decimal_value(
         totals.get("final_plan_total", 0),
         "totals.final_plan_total",
     )
-    declared_payable = number(
+    declared_payable = decimal_value(
         totals.get("payable_candidate_total", 0),
         "totals.payable_candidate_total",
     )
-    declared_reserved = number(
+    declared_reserved = decimal_value(
         totals.get("reserved_total", 0),
         "totals.reserved_total",
     )
-    unallocated = number(
+    unallocated = decimal_value(
         totals.get("unallocated_total", 0),
         "totals.unallocated_total",
     )
-    residual = number(
+    rounding_residual = decimal_value(
         totals.get("rounding_residual", 0),
         "totals.rounding_residual",
     )
+    distributable = decimal_value(
+        pool.get("distributable_amount", 0),
+        "royalty_pool.distributable_amount",
+    )
 
-    checks = [
-        ("fixed_allocation_total", declared_fixed, fixed_total),
-        ("proportional_allocation_total", declared_proportional, proportional_total),
-        ("final_plan_total", declared_final, final_total),
-        ("payable_candidate_total", declared_payable, payable_total),
-        ("reserved_total", declared_reserved, reserved_total),
+    calculated_checks = [
+        (
+            "fixed_allocation_total",
+            declared_fixed,
+            fixed_total,
+        ),
+        (
+            "proportional_allocation_total",
+            declared_proportional,
+            proportional_total,
+        ),
+        (
+            "final_plan_total",
+            declared_final,
+            final_total,
+        ),
+        (
+            "payable_candidate_total",
+            declared_payable,
+            payable_total,
+        ),
+        (
+            "reserved_total",
+            declared_reserved,
+            reserved_total,
+        ),
     ]
-    for field, declared, calculated in checks:
-        if not near(declared, calculated, tolerance):
+
+    for field_name, declared, calculated in (
+        calculated_checks
+    ):
+        if not approximately_equal(
+            declared,
+            calculated,
+            tolerance,
+        ):
             errors.append(
-                f"[semantic-error] totals.{field}: "
+                f"[semantic-error] totals.{field_name}: "
                 f"declared {declared}, calculated {calculated}"
             )
 
-    if not near(declared_fixed, fixed_policy, tolerance):
-        errors.append("[semantic-error] fixed allocation policy mismatch")
-    if not near(declared_pool, proportional_pool, tolerance):
-        errors.append("[semantic-error] proportional pool policy mismatch")
-    if not near(
+    policy_fixed = decimal_value(
+        policy.get("fixed_allocation_total", 0),
+        "policy_application.fixed_allocation_total",
+    )
+    policy_proportional = decimal_value(
+        policy.get("proportional_pool_amount", 0),
+        "policy_application.proportional_pool_amount",
+    )
+
+    if not approximately_equal(
+        declared_fixed,
+        policy_fixed,
+        tolerance,
+    ):
+        errors.append(
+            "[semantic-error] totals.fixed_allocation_total: "
+            "must match policy_application.fixed_allocation_total"
+        )
+
+    if not approximately_equal(
+        declared_proportional_pool,
+        policy_proportional,
+        tolerance,
+    ):
+        errors.append(
+            "[semantic-error] totals.proportional_pool_amount: "
+            "must match policy_application.proportional_pool_amount"
+        )
+
+    if not approximately_equal(
+        declared_proportional,
+        declared_proportional_pool,
+        tolerance,
+    ):
+        errors.append(
+            "[semantic-error] totals.proportional_allocation_total: "
+            "must equal proportional_pool_amount "
+            "after remainder handling"
+        )
+
+    if not approximately_equal(
+        declared_final,
+        declared_fixed + declared_proportional,
+        tolerance,
+    ):
+        errors.append(
+            "[semantic-error] totals.final_plan_total: "
+            "must equal fixed + proportional allocations"
+        )
+
+    if not approximately_equal(
         declared_final,
         declared_payable + declared_reserved,
         tolerance,
     ):
-        errors.append("[semantic-error] payable/reserved total mismatch")
-
-    expected_residual = proportional_pool - declared_proportional
-    if not near(residual, expected_residual, tolerance):
-        errors.append("[semantic-error] rounding_residual: invalid")
-    if not near(distributable, declared_final + unallocated, tolerance):
-        errors.append("[semantic-error] final plan does not conserve pool")
-
-    strategy = policy.get("remainder_policy", {}).get("strategy")
-    if strategy != "retain_unallocated" and residual != 0:
         errors.append(
-            "[semantic-error] rounding residual must be resolved by policy"
+            "[semantic-error] totals.final_plan_total: "
+            "must equal payable_candidate_total + reserved_total"
         )
 
-    errors.extend(validate_approval(document, "plan_status"))
+    expected_residual = (
+        distributable
+        - declared_final
+        - unallocated
+    )
+
+    if not approximately_equal(
+        rounding_residual,
+        expected_residual,
+        tolerance,
+    ):
+        errors.append(
+            "[semantic-error] totals.rounding_residual: "
+            f"expected {expected_residual}, "
+            f"found {rounding_residual}"
+        )
+
+    if not approximately_equal(
+        distributable,
+        declared_final
+        + unallocated
+        + rounding_residual,
+        tolerance,
+    ):
+        errors.append(
+            "[semantic-error] royalty_pool.distributable_amount: "
+            "must equal final plan + unallocated + residual"
+        )
+
     errors.extend(
-        validate_boundary(
+        validate_approval_state(
             document,
+            "plan_status",
+        )
+    )
+
+    errors.extend(
+        validate_required_true_fields(
+            document.get("safety_boundary", {}),
             [
                 "approved_weight_resolution_required",
                 "evidence_required",
@@ -871,16 +1468,19 @@ def validate_v03(document: dict[str, Any]) -> list[str]:
                 "held_weight_redistribution_prohibited",
                 "human_approval_required",
             ],
+            "safety_boundary",
         )
     )
+
     return errors
+
 
 # ---------------------------------------------------------------------------
 # v0.4 — Dispute and Holdback Ledger
 # ---------------------------------------------------------------------------
 
 
-def validate_dispute_holdback_ledger(
+def validate_v04(
     document: dict[str, Any],
 ) -> list[str]:
     """Validate Dispute and Holdback Ledger semantics."""
@@ -890,15 +1490,12 @@ def validate_dispute_holdback_ledger(
 
     source_context = document.get("source_context", {})
     source_plan_id = str(
-        source_context.get("allocation_plan_id")
+        source_context.get("allocation_plan_id", "")
     )
 
     dispute_ids: set[str] = set()
     dispute_records: dict[str, dict[str, Any]] = {}
     affected_beneficiary_ids: set[str] = set()
-
-    open_dispute_count = 0
-    resolved_dispute_count = 0
 
     open_statuses = {
         "open",
@@ -907,43 +1504,62 @@ def validate_dispute_holdback_ledger(
         "partially_resolved",
         "expired",
     }
-
     resolved_statuses = {
         "resolved",
         "rejected",
     }
+
+    open_dispute_count = 0
+    resolved_dispute_count = 0
 
     for index, dispute in enumerate(
         document.get("dispute_cases", [])
     ):
         prefix = f"dispute_cases[{index}]"
 
-        dispute_id = str(dispute.get("dispute_id"))
+        dispute_id = str(
+            dispute.get("dispute_id", "")
+        )
         beneficiary_id = str(
-            dispute.get("affected_beneficiary_id")
+            dispute.get(
+                "affected_beneficiary_id",
+                "",
+            )
         )
 
-        if dispute_id in dispute_ids:
-            errors.append(
-                f"[semantic-error] {prefix}.dispute_id: "
-                f"duplicate dispute '{dispute_id}'"
+        errors.extend(
+            register_unique(
+                dispute_id,
+                dispute_ids,
+                f"{prefix}.dispute_id",
+                "dispute",
             )
+        )
 
-        dispute_ids.add(dispute_id)
         dispute_records[dispute_id] = dispute
-        affected_beneficiary_ids.add(beneficiary_id)
+        affected_beneficiary_ids.add(
+            beneficiary_id
+        )
 
         allocation_ref = dispute.get(
             "affected_allocation_ref",
             {},
         )
-
         referenced_plan_id = str(
-            allocation_ref.get("plan_id")
+            allocation_ref.get("plan_id", "")
         )
-
         referenced_beneficiary_id = str(
-            allocation_ref.get("beneficiary_id")
+            allocation_ref.get("beneficiary_id", "")
+        )
+        original_reserved = decimal_value(
+            allocation_ref.get(
+                "original_reserved_amount",
+                0,
+            ),
+            (
+                f"{prefix}.affected_allocation_ref."
+                "original_reserved_amount"
+            ),
         )
 
         if referenced_plan_id != source_plan_id:
@@ -960,24 +1576,14 @@ def validate_dispute_holdback_ledger(
                 "must match affected_beneficiary_id"
             )
 
-        original_reserved = decimal_value(
-            allocation_ref.get(
-                "original_reserved_amount",
-                0,
-            ),
-            (
-                f"{prefix}.affected_allocation_ref."
-                "original_reserved_amount"
-            ),
+        dispute_scope = dispute.get(
+            "dispute_scope",
+            {},
         )
-
-        dispute_scope = dispute.get("dispute_scope", {})
-
         disputed_amount = decimal_value(
             dispute_scope.get("disputed_amount", 0),
             f"{prefix}.dispute_scope.disputed_amount",
         )
-
         undisputed_amount = decimal_value(
             dispute_scope.get("undisputed_amount", 0),
             f"{prefix}.dispute_scope.undisputed_amount",
@@ -992,7 +1598,7 @@ def validate_dispute_holdback_ledger(
                 "original_reserved_amount"
             )
 
-        status = str(dispute.get("status"))
+        status = str(dispute.get("status", ""))
 
         if status in open_statuses:
             open_dispute_count += 1
@@ -1007,17 +1613,16 @@ def validate_dispute_holdback_ledger(
             "resolved",
             "rejected",
         }:
-            if not resolution:
+            if not isinstance(resolution, dict):
                 errors.append(
                     f"[semantic-error] {prefix}.resolution: "
-                    "resolution is required for the current status"
+                    "required for the current status"
                 )
             else:
                 released = decimal_value(
                     resolution.get("released_amount", 0),
                     f"{prefix}.resolution.released_amount",
                 )
-
                 continued = decimal_value(
                     resolution.get(
                         "continued_hold_amount",
@@ -1028,7 +1633,6 @@ def validate_dispute_holdback_ledger(
                         "continued_hold_amount"
                     ),
                 )
-
                 returned = decimal_value(
                     resolution.get(
                         "returned_to_pool_amount",
@@ -1041,13 +1645,14 @@ def validate_dispute_holdback_ledger(
                 )
 
                 if original_reserved != (
-                    released + continued + returned
+                    released
+                    + continued
+                    + returned
                 ):
                     errors.append(
                         f"[semantic-error] {prefix}.resolution: "
-                        "released_amount + continued_hold_amount + "
-                        "returned_to_pool_amount must equal the "
-                        "original reserved amount"
+                        "released + continued hold + returned "
+                        "must equal original reserved amount"
                     )
 
         errors.extend(
@@ -1072,38 +1677,46 @@ def validate_dispute_holdback_ledger(
     ):
         prefix = f"holdback_entries[{index}]"
 
-        holdback_id = str(holdback.get("holdback_id"))
-        dispute_id = str(holdback.get("dispute_id"))
+        holdback_id = str(
+            holdback.get("holdback_id", "")
+        )
+        dispute_id = str(
+            holdback.get("dispute_id", "")
+        )
         beneficiary_id = str(
-            holdback.get("beneficiary_id")
+            holdback.get("beneficiary_id", "")
         )
 
-        if holdback_id in holdback_ids:
-            errors.append(
-                f"[semantic-error] {prefix}.holdback_id: "
-                f"duplicate holdback '{holdback_id}'"
+        errors.extend(
+            register_unique(
+                holdback_id,
+                holdback_ids,
+                f"{prefix}.holdback_id",
+                "holdback",
             )
+        )
 
-        holdback_ids.add(holdback_id)
+        dispute = dispute_records.get(dispute_id)
 
-        if dispute_id not in dispute_records:
+        if dispute is None:
             errors.append(
                 f"[semantic-error] {prefix}.dispute_id: "
                 f"unknown dispute '{dispute_id}'"
             )
-        else:
-            dispute = dispute_records[dispute_id]
+        elif beneficiary_id != str(
+            dispute.get(
+                "affected_beneficiary_id",
+                "",
+            )
+        ):
+            errors.append(
+                f"[semantic-error] {prefix}.beneficiary_id: "
+                "must match the dispute beneficiary"
+            )
 
-            if (
-                beneficiary_id
-                != dispute.get("affected_beneficiary_id")
-            ):
-                errors.append(
-                    f"[semantic-error] {prefix}.beneficiary_id: "
-                    "must match the dispute beneficiary"
-                )
-
-        if str(holdback.get("source_plan_id")) != source_plan_id:
+        if str(
+            holdback.get("source_plan_id", "")
+        ) != source_plan_id:
             errors.append(
                 f"[semantic-error] {prefix}.source_plan_id: "
                 "must match source_context.allocation_plan_id"
@@ -1113,34 +1726,36 @@ def validate_dispute_holdback_ledger(
             holdback.get("source_reserved_amount", 0),
             f"{prefix}.source_reserved_amount",
         )
-
         correction_adjustment = decimal_value(
             holdback.get("correction_adjustment", 0),
             f"{prefix}.correction_adjustment",
         )
-
         effective_holdback = decimal_value(
-            holdback.get("effective_holdback_amount", 0),
+            holdback.get(
+                "effective_holdback_amount",
+                0,
+            ),
             f"{prefix}.effective_holdback_amount",
         )
-
         released = decimal_value(
             holdback.get("released_amount", 0),
             f"{prefix}.released_amount",
         )
-
         current_held = decimal_value(
             holdback.get("current_held_amount", 0),
             f"{prefix}.current_held_amount",
         )
-
         returned = decimal_value(
-            holdback.get("returned_to_pool_amount", 0),
+            holdback.get(
+                "returned_to_pool_amount",
+                0,
+            ),
             f"{prefix}.returned_to_pool_amount",
         )
 
         if effective_holdback != (
-            source_reserved + correction_adjustment
+            source_reserved
+            + correction_adjustment
         ):
             errors.append(
                 f"[semantic-error] "
@@ -1150,46 +1765,46 @@ def validate_dispute_holdback_ledger(
             )
 
         if effective_holdback != (
-            released + current_held + returned
+            released
+            + current_held
+            + returned
         ):
             errors.append(
                 f"[semantic-error] {prefix}: "
-                "effective_holdback_amount must equal "
-                "released_amount + current_held_amount + "
-                "returned_to_pool_amount"
+                "effective holdback must equal released + "
+                "currently held + returned to pool"
             )
 
-        status = str(holdback.get("status"))
+        status = str(holdback.get("status", ""))
 
-        if status == "active_hold":
-            if current_held <= 0:
-                errors.append(
-                    f"[semantic-error] {prefix}.status: "
-                    "active_hold requires a positive held amount"
-                )
+        if (
+            status == "active_hold"
+            and current_held <= 0
+        ):
+            errors.append(
+                f"[semantic-error] {prefix}.status: "
+                "active_hold requires positive current_held_amount"
+            )
 
         elif status == "partial_release":
             if released <= 0 or current_held <= 0:
                 errors.append(
                     f"[semantic-error] {prefix}.status: "
-                    "partial_release requires both released and "
-                    "currently held amounts"
+                    "partial_release requires released and held amounts"
                 )
 
         elif status == "fully_released":
             if current_held != 0 or released <= 0:
                 errors.append(
                     f"[semantic-error] {prefix}.status: "
-                    "fully_released requires zero current hold and "
-                    "a positive released amount"
+                    "fully_released requires zero hold and release"
                 )
 
         elif status == "returned_to_pool":
             if current_held != 0 or returned <= 0:
                 errors.append(
                     f"[semantic-error] {prefix}.status: "
-                    "returned_to_pool requires zero current hold and "
-                    "a positive returned amount"
+                    "returned_to_pool requires zero hold and return"
                 )
 
         release_event_total = Decimal("0")
@@ -1201,12 +1816,10 @@ def validate_dispute_holdback_ledger(
             event_prefix = (
                 f"{prefix}.release_events[{event_index}]"
             )
-
             event_amount = decimal_value(
                 event.get("amount", 0),
                 f"{event_prefix}.amount",
             )
-
             destination = event.get("destination")
 
             if destination == "beneficiary_allocation":
@@ -1226,15 +1839,13 @@ def validate_dispute_holdback_ledger(
         if release_event_total != released:
             errors.append(
                 f"[semantic-error] {prefix}.release_events: "
-                "beneficiary release event total must equal "
-                "released_amount"
+                "beneficiary release events must equal released_amount"
             )
 
         if pool_return_event_total != returned:
             errors.append(
                 f"[semantic-error] {prefix}.release_events: "
-                "pool return event total must equal "
-                "returned_to_pool_amount"
+                "pool return events must equal returned_to_pool_amount"
             )
 
         errors.extend(
@@ -1245,45 +1856,42 @@ def validate_dispute_holdback_ledger(
             )
         )
 
-        if dispute_id in dispute_records:
-            resolution = dispute_records[
-                dispute_id
-            ].get("resolution")
+        if dispute is not None:
+            resolution = dispute.get("resolution")
 
-            if resolution:
+            if isinstance(resolution, dict):
                 resolution_released = decimal_value(
                     resolution.get("released_amount", 0),
                     (
-                        f"dispute {dispute_id} "
+                        f"dispute {dispute_id}."
                         "resolution.released_amount"
                     ),
                 )
-
                 resolution_held = decimal_value(
                     resolution.get(
                         "continued_hold_amount",
                         0,
                     ),
                     (
-                        f"dispute {dispute_id} "
+                        f"dispute {dispute_id}."
                         "resolution.continued_hold_amount"
                     ),
                 )
-
                 resolution_returned = decimal_value(
                     resolution.get(
                         "returned_to_pool_amount",
                         0,
                     ),
                     (
-                        f"dispute {dispute_id} "
+                        f"dispute {dispute_id}."
                         "resolution.returned_to_pool_amount"
                     ),
                 )
 
                 if released != resolution_released:
                     errors.append(
-                        f"[semantic-error] {prefix}.released_amount: "
+                        f"[semantic-error] "
+                        f"{prefix}.released_amount: "
                         "must match dispute resolution"
                     )
 
@@ -1302,7 +1910,9 @@ def validate_dispute_holdback_ledger(
                     )
 
         source_reserved_total += source_reserved
-        correction_adjustment_total += correction_adjustment
+        correction_adjustment_total += (
+            correction_adjustment
+        )
         effective_holdback_total += effective_holdback
         released_total += released
         current_held_total += current_held
@@ -1350,7 +1960,10 @@ def validate_dispute_holdback_ledger(
             )
 
     declared_affected_count = int(
-        totals.get("affected_beneficiary_count", 0)
+        totals.get(
+            "affected_beneficiary_count",
+            0,
+        )
     )
 
     if declared_affected_count != len(
@@ -1391,8 +2004,8 @@ def validate_dispute_holdback_ledger(
         + returned_to_pool_total
     ):
         errors.append(
-            "[semantic-error] totals: effective holdback must equal "
-            "released + currently held + returned to pool"
+            "[semantic-error] totals: "
+            "effective holdback must equal released + held + returned"
         )
 
     errors.extend(
@@ -1436,13 +2049,24 @@ def validate_dispute_holdback_ledger(
     return errors
 
 
-# Runner -------------------------------------------------------------------
+# Descriptive alias retained for compatibility.
+validate_dispute_holdback_ledger = validate_v04
+
+
+# ---------------------------------------------------------------------------
+# Targets and execution
+# ---------------------------------------------------------------------------
+
 
 def targets() -> list[Target]:
+    """Return all validation targets."""
+
     return [
         Target(
             "Allocation Ledger Record",
-            ROOT / "schemas" / "allocation-ledger-record.schema.json",
+            ROOT
+            / "schemas"
+            / "allocation-ledger-record.schema.json",
             ROOT
             / "examples"
             / "pass"
@@ -1480,12 +2104,14 @@ def targets() -> list[Target]:
             / "examples"
             / "pass"
             / "dispute-holdback-ledger.example.yaml",
-            validate_dispute_holdback_ledger,
+            validate_v04,
         ),
     ]
 
 
-def validate_target(target: Target) -> list[str]:
+def validate_target(
+    target: Target,
+) -> list[str]:
     """Validate one schema/example pair."""
 
     if not target.schema.exists():
@@ -1539,10 +2165,15 @@ def validate_target(target: Target) -> list[str]:
             f"{type(error).__name__}: {error}"
         ]
 
-    errors = schema_errors(document, schema)
+    errors = schema_errors(
+        document,
+        schema,
+    )
 
     if not errors:
-        errors.extend(target.validate(document))
+        errors.extend(
+            target.validate(document)
+        )
 
     return errors
 
@@ -1550,21 +2181,31 @@ def validate_target(target: Target) -> list[str]:
 def main() -> int:
     """Validate all repository examples."""
 
-    print("=== Royalty Allocation Ledger Agent Validation ===")
+    print(
+        "=== Royalty Allocation Ledger "
+        "Agent Validation ==="
+    )
     print()
 
     failed = False
 
     for target in targets():
         print(f"[validate] {target.name}")
-        print(f"  schema : {target.schema.relative_to(ROOT)}")
-        print(f"  example: {target.example.relative_to(ROOT)}")
+        print(
+            f"  schema : "
+            f"{target.schema.relative_to(ROOT)}"
+        )
+        print(
+            f"  example: "
+            f"{target.example.relative_to(ROOT)}"
+        )
 
         try:
             errors = validate_target(target)
         except Exception as error:
             errors = [
-                f"[fatal] {type(error).__name__}: {error}"
+                f"[fatal] "
+                f"{type(error).__name__}: {error}"
             ]
 
         if errors:
@@ -1583,7 +2224,8 @@ def main() -> int:
         return 1
 
     print(
-        "All Royalty Allocation Ledger Agent examples are valid."
+        "All Royalty Allocation Ledger "
+        "Agent examples are valid."
     )
     return 0
 
