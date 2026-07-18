@@ -1,0 +1,1050 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/SamuraiWriter7/royalty-allocation-ledger-agent/schemas/settlement-handoff-record.schema.json",
+  "title": "Settlement Handoff and Royalty Audit Record",
+  "description": "An audit-ready record that converts approved royalty allocations and holdback resolutions into non-executable settlement instructions for an authorized payment system.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "handoff_id",
+    "created_at",
+    "generated_by",
+    "source_context",
+    "settlement_batch",
+    "payment_instructions",
+    "handoff_control",
+    "reconciliation",
+    "audit_report",
+    "approval",
+    "handoff_status",
+    "safety_boundary"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.5.0"
+    },
+    "handoff_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generated_by": {
+      "$ref": "#/$defs/generatedBy"
+    },
+    "source_context": {
+      "$ref": "#/$defs/sourceContext"
+    },
+    "settlement_batch": {
+      "$ref": "#/$defs/settlementBatch"
+    },
+    "payment_instructions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/paymentInstruction"
+      }
+    },
+    "handoff_control": {
+      "$ref": "#/$defs/handoffControl"
+    },
+    "reconciliation": {
+      "$ref": "#/$defs/reconciliation"
+    },
+    "audit_report": {
+      "$ref": "#/$defs/auditReport"
+    },
+    "approval": {
+      "$ref": "#/$defs/humanApproval"
+    },
+    "handoff_status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "pending_human_approval",
+        "approved_for_handoff",
+        "handed_off",
+        "rejected",
+        "superseded"
+      ]
+    },
+    "supersedes_handoff_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "safety_boundary": {
+      "$ref": "#/$defs/safetyBoundary"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "handoff_status": {
+            "const": "superseded"
+          }
+        },
+        "required": [
+          "handoff_status"
+        ]
+      },
+      "then": {
+        "required": [
+          "supersedes_handoff_id"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "generatedBy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_id",
+        "agent_type",
+        "generation_mode"
+      ],
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "agent_type": {
+          "type": "string",
+          "const": "royalty-allocation-ledger-agent"
+        },
+        "generation_mode": {
+          "type": "string",
+          "enum": [
+            "draft_only",
+            "human_supervised"
+          ]
+        },
+        "model_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "sourceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allocation_ledger_id",
+        "allocation_plan_id",
+        "holdback_ledger_id",
+        "settlement_policy_id",
+        "source_records"
+      ],
+      "properties": {
+        "allocation_ledger_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "allocation_plan_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "holdback_ledger_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "settlement_policy_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "source_records": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "$ref": "#/$defs/sourceRecord"
+          }
+        }
+      }
+    },
+    "sourceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type",
+        "record_id",
+        "verification_status"
+      ],
+      "properties": {
+        "record_type": {
+          "type": "string",
+          "enum": [
+            "allocation_ledger_record",
+            "contribution_weight_resolution",
+            "multi_beneficiary_allocation_plan",
+            "dispute_holdback_ledger",
+            "settlement_policy",
+            "identity_record",
+            "beneficiary_endpoint",
+            "tax_review",
+            "employment_review",
+            "human_approval_receipt",
+            "other"
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "verification_status": {
+          "type": "string",
+          "const": "verified"
+        },
+        "uri": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "settlementBatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "batch_id",
+        "currency",
+        "approved_allocation_total",
+        "released_holdback_total",
+        "current_holdback_total",
+        "returned_to_pool_total",
+        "settlement_ready_total",
+        "instruction_count",
+        "handoff_target"
+      ],
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "approved_allocation_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "released_holdback_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "current_holdback_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "returned_to_pool_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "settlement_ready_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "instruction_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "handoff_target": {
+          "$ref": "#/$defs/handoffTarget"
+        }
+      }
+    },
+    "handoffTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_id",
+        "protocol",
+        "target_type",
+        "verification_status"
+      ],
+      "properties": {
+        "target_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "agentic-royalty-path-standard",
+            "bank-settlement-gateway",
+            "x402",
+            "internal-ledger",
+            "manual-settlement"
+          ]
+        },
+        "target_type": {
+          "type": "string",
+          "enum": [
+            "authorized_payment_system",
+            "settlement_orchestrator",
+            "human_operator"
+          ]
+        },
+        "verification_status": {
+          "type": "string",
+          "const": "verified"
+        }
+      }
+    },
+    "paymentInstruction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instruction_id",
+        "beneficiary_id",
+        "beneficiary_type",
+        "structural_role",
+        "settlement_basis",
+        "planned_amount",
+        "settlement_amount",
+        "current_held_amount",
+        "returned_to_pool_amount",
+        "endpoint",
+        "compliance",
+        "instruction_status",
+        "evidence_refs",
+        "explanation"
+      ],
+      "properties": {
+        "instruction_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9._:-]+$"
+        },
+        "beneficiary_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "beneficiary_type": {
+          "type": "string",
+          "enum": [
+            "human",
+            "organization",
+            "collective",
+            "community_fund",
+            "public_fund",
+            "platform",
+            "other"
+          ]
+        },
+        "structural_role": {
+          "type": "string",
+          "enum": [
+            "origin",
+            "derivative",
+            "contributor",
+            "supporting_contributor",
+            "verifier",
+            "auditor",
+            "community_fund",
+            "platform",
+            "other"
+          ]
+        },
+        "settlement_basis": {
+          "type": "string",
+          "enum": [
+            "approved_allocation_plan",
+            "approved_holdback_release"
+          ]
+        },
+        "source_plan_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "holdback_release_ref": {
+          "$ref": "#/$defs/holdbackReleaseReference"
+        },
+        "planned_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "settlement_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "current_held_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "returned_to_pool_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "endpoint": {
+          "$ref": "#/$defs/beneficiaryEndpoint"
+        },
+        "compliance": {
+          "$ref": "#/$defs/complianceBoundary"
+        },
+        "instruction_status": {
+          "type": "string",
+          "enum": [
+            "ready_for_handoff",
+            "blocked",
+            "excluded"
+          ]
+        },
+        "block_reasons": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/blockReason"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/evidenceReference"
+          }
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "settlement_basis": {
+                "const": "approved_holdback_release"
+              }
+            },
+            "required": [
+              "settlement_basis"
+            ]
+          },
+          "then": {
+            "required": [
+              "holdback_release_ref"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "instruction_status": {
+                "const": "blocked"
+              }
+            },
+            "required": [
+              "instruction_status"
+            ]
+          },
+          "then": {
+            "required": [
+              "block_reasons"
+            ],
+            "properties": {
+              "settlement_amount": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "instruction_status": {
+                "const": "excluded"
+              }
+            },
+            "required": [
+              "instruction_status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "settlement_amount": {
+                "const": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "holdbackReleaseReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "holdback_ledger_id",
+        "holdback_id",
+        "release_event_id",
+        "released_amount",
+        "approval_receipt_id"
+      ],
+      "properties": {
+        "holdback_ledger_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "holdback_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "release_event_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "released_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "approval_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "beneficiaryEndpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "endpoint_id",
+        "endpoint_type",
+        "verification_status",
+        "routing_reference"
+      ],
+      "properties": {
+        "endpoint_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "endpoint_type": {
+          "type": "string",
+          "enum": [
+            "bank_account_token",
+            "payment_token",
+            "x402_wallet",
+            "internal_ledger",
+            "manual_review"
+          ]
+        },
+        "verification_status": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "pending",
+            "rejected"
+          ]
+        },
+        "routing_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "raw_credentials_included": {
+          "type": "boolean",
+          "const": false
+        }
+      }
+    },
+    "complianceBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_status",
+        "tax_boundary",
+        "employment_boundary",
+        "currency_allowed"
+      ],
+      "properties": {
+        "identity_status": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "pending",
+            "rejected"
+          ]
+        },
+        "tax_boundary": {
+          "type": "string",
+          "enum": [
+            "cleared",
+            "withholding_required",
+            "review_required",
+            "not_applicable"
+          ]
+        },
+        "employment_boundary": {
+          "type": "string",
+          "enum": [
+            "independent_beneficiary",
+            "employee_payroll_required",
+            "review_required",
+            "not_applicable"
+          ]
+        },
+        "currency_allowed": {
+          "type": "boolean"
+        },
+        "withholding_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "review_record_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "blockReason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason_code",
+        "description"
+      ],
+      "properties": {
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "endpoint_unverified",
+            "identity_unverified",
+            "tax_review_required",
+            "employment_review_required",
+            "currency_not_allowed",
+            "active_holdback",
+            "missing_approval",
+            "policy_conflict",
+            "other"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "related_record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "evidenceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type",
+        "record_id",
+        "relation",
+        "verified"
+      ],
+      "properties": {
+        "record_type": {
+          "type": "string",
+          "enum": [
+            "allocation_ledger_record",
+            "multi_beneficiary_allocation_plan",
+            "dispute_holdback_ledger",
+            "settlement_policy",
+            "identity_record",
+            "beneficiary_endpoint",
+            "tax_review",
+            "employment_review",
+            "human_approval_receipt",
+            "other"
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "relation": {
+          "type": "string",
+          "enum": [
+            "supports_allocation",
+            "supports_holdback_release",
+            "supports_endpoint",
+            "supports_identity",
+            "supports_tax_boundary",
+            "supports_employment_boundary",
+            "supports_approval",
+            "supports_policy",
+            "other"
+          ]
+        },
+        "verified": {
+          "type": "boolean",
+          "const": true
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "handoffControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handoff_authorized",
+        "handoff_executed",
+        "execution_prohibited_for_agent",
+        "authorized_target_id"
+      ],
+      "properties": {
+        "handoff_authorized": {
+          "type": "boolean"
+        },
+        "handoff_executed": {
+          "type": "boolean"
+        },
+        "execution_prohibited_for_agent": {
+          "type": "boolean",
+          "const": true
+        },
+        "authorized_target_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "handoff_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "handed_off_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "expected_settlement_total",
+        "executed_total",
+        "failed_total",
+        "pending_total",
+        "settlement_receipt_ids"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "not_started",
+            "in_progress",
+            "completed",
+            "failed"
+          ]
+        },
+        "expected_settlement_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "executed_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "failed_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "pending_total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "settlement_receipt_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "auditReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audit_id",
+        "generated_at",
+        "status",
+        "checks",
+        "findings"
+      ],
+      "properties": {
+        "audit_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "passed_with_warnings",
+            "failed"
+          ]
+        },
+        "checks": {
+          "$ref": "#/$defs/auditChecks"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/auditFinding"
+          }
+        }
+      }
+    },
+    "auditChecks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_complete",
+        "amount_conservation_passed",
+        "holdback_excluded",
+        "endpoints_verified",
+        "compliance_boundaries_checked",
+        "human_approval_verified",
+        "autonomous_execution_disabled"
+      ],
+      "properties": {
+        "evidence_complete": {
+          "type": "boolean"
+        },
+        "amount_conservation_passed": {
+          "type": "boolean"
+        },
+        "holdback_excluded": {
+          "type": "boolean"
+        },
+        "endpoints_verified": {
+          "type": "boolean"
+        },
+        "compliance_boundaries_checked": {
+          "type": "boolean"
+        },
+        "human_approval_verified": {
+          "type": "boolean"
+        },
+        "autonomous_execution_disabled": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "auditFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "code",
+        "description"
+      ],
+      "properties": {
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "related_instruction_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "humanApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "human_review_required",
+        "status"
+      ],
+      "properties": {
+        "human_review_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected"
+          ]
+        },
+        "approver_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approval_receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "rejection_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "approved"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "approver_id",
+              "approval_receipt_id",
+              "approved_at"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "rejected"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "rejection_reason"
+            ]
+          }
+        }
+      ]
+    },
+    "safetyBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verified_allocation_required",
+        "active_holdback_exclusion_required",
+        "verified_endpoint_required",
+        "compliance_review_required",
+        "raw_payment_credentials_prohibited",
+        "autonomous_payment_prohibited",
+        "agent_self_approval_prohibited",
+        "human_approval_required"
+      ],
+      "properties": {
+        "verified_allocation_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "active_holdback_exclusion_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "verified_endpoint_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "compliance_review_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "raw_payment_credentials_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "autonomous_payment_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "agent_self_approval_prohibited": {
+          "type": "boolean",
+          "const": true
+        },
+        "human_approval_required": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    }
+  }
+}
