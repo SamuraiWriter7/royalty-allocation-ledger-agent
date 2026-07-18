@@ -1,0 +1,81 @@
+policy_version: "0.5.0"
+
+policy_id: "default-settlement-handoff-policy-v0.5"
+
+title: "Default Settlement Handoff and Royalty Audit Policy"
+
+description: >-
+  Example policy for translating approved allocations and approved holdback
+  releases into non-executable settlement instructions.
+
+eligibility:
+  approved_allocation_required: true
+  approved_holdback_release_required: true
+  active_holdback_must_be_excluded: true
+  returned_to_pool_amount_must_be_excluded: true
+
+endpoint_policy:
+  verified_endpoint_required: true
+  raw_payment_credentials_prohibited: true
+
+  allowed_endpoint_types:
+    - "bank_account_token"
+    - "payment_token"
+    - "x402_wallet"
+    - "internal_ledger"
+    - "manual_review"
+
+compliance_policy:
+  verified_identity_required: true
+  tax_boundary_review_required: true
+  employment_boundary_review_required: true
+  allowed_currency_required: true
+
+instruction_policy:
+  amount_conservation_required: true
+
+  formula: >-
+    planned_amount =
+    settlement_amount +
+    current_held_amount +
+    returned_to_pool_amount
+
+  blocked_instruction_settlement_amount: 0
+
+handoff_policy:
+  approved_human_receipt_required: true
+  verified_target_required: true
+  agent_may_prepare_handoff: true
+  agent_may_execute_payment: false
+
+reconciliation_policy:
+  required: true
+
+  formula: >-
+    expected_settlement_total =
+    executed_total +
+    failed_total +
+    pending_total
+
+audit_policy:
+  evidence_complete_required: true
+  amount_conservation_required: true
+  holdback_exclusion_required: true
+  endpoint_verification_required: true
+  compliance_boundary_check_required: true
+  human_approval_verification_required: true
+  autonomous_execution_disabled_required: true
+
+prohibited_rules:
+  - "include_active_holdback_in_settlement"
+  - "include_returned_to_pool_amount_in_settlement"
+  - "use_unverified_endpoint"
+  - "store_raw_bank_credentials"
+  - "bypass_tax_review"
+  - "bypass_employment_review"
+  - "execute_payment_from_allocation_agent"
+  - "allow_agent_self_approval"
+  - "mark_unexecuted_payment_as_reconciled"
+
+approval:
+  human_review_required: true
