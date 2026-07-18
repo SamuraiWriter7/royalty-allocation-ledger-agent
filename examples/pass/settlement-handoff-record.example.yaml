@@ -1,0 +1,383 @@
+schema_version: "0.5.0"
+
+handoff_id: "settlement-handoff-2026-0001"
+
+created_at: "2026-07-18T09:30:00+09:00"
+
+generated_by:
+  agent_id: "royalty-allocation-agent-001"
+  agent_type: "royalty-allocation-ledger-agent"
+  generation_mode: "human_supervised"
+  model_reference: "settlement-handoff-audit-engine"
+
+source_context:
+  allocation_ledger_id: "allocation-ledger-2026-0001"
+  allocation_plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+  holdback_ledger_id: "dispute-holdback-ledger-2026-0001"
+  settlement_policy_id: "default-settlement-handoff-policy-v0.5"
+
+  source_records:
+    - record_type: "allocation_ledger_record"
+      record_id: "allocation-ledger-2026-0001"
+      verification_status: "verified"
+
+    - record_type: "multi_beneficiary_allocation_plan"
+      record_id: "multi-beneficiary-allocation-plan-2026-0001"
+      verification_status: "verified"
+
+    - record_type: "dispute_holdback_ledger"
+      record_id: "dispute-holdback-ledger-2026-0001"
+      verification_status: "verified"
+
+    - record_type: "settlement_policy"
+      record_id: "default-settlement-handoff-policy-v0.5"
+      verification_status: "verified"
+
+    - record_type: "human_approval_receipt"
+      record_id: "settlement-approval-receipt-001"
+      verification_status: "verified"
+
+    - record_type: "identity_record"
+      record_id: "identity-bundle-001"
+      verification_status: "verified"
+
+    - record_type: "beneficiary_endpoint"
+      record_id: "endpoint-bundle-001"
+      verification_status: "verified"
+
+    - record_type: "tax_review"
+      record_id: "tax-review-bundle-001"
+      verification_status: "verified"
+
+    - record_type: "employment_review"
+      record_id: "employment-review-bundle-001"
+      verification_status: "verified"
+
+settlement_batch:
+  batch_id: "settlement-batch-2026-0001"
+  currency: "JPY"
+
+  approved_allocation_total: 100000
+  released_holdback_total: 14000
+  current_holdback_total: 5000
+  returned_to_pool_total: 0
+  settlement_ready_total: 95000
+  instruction_count: 5
+
+  handoff_target:
+    target_id: "agentic-royalty-path-gateway-001"
+    protocol: "agentic-royalty-path-standard"
+    target_type: "settlement_orchestrator"
+    verification_status: "verified"
+
+payment_instructions:
+  - instruction_id: "settlement-instruction-person-a"
+    beneficiary_id: "person-a"
+    beneficiary_type: "human"
+    structural_role: "origin"
+    settlement_basis: "approved_allocation_plan"
+    source_plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+
+    planned_amount: 28500
+    settlement_amount: 28500
+    current_held_amount: 0
+    returned_to_pool_amount: 0
+
+    endpoint:
+      endpoint_id: "endpoint-person-a"
+      endpoint_type: "bank_account_token"
+      verification_status: "verified"
+      routing_reference: "tokenized-bank-route-person-a"
+      raw_credentials_included: false
+
+    compliance:
+      identity_status: "verified"
+      tax_boundary: "cleared"
+      employment_boundary: "independent_beneficiary"
+      currency_allowed: true
+      withholding_amount: 0
+      review_record_ids:
+        - "tax-review-bundle-001"
+        - "employment-review-bundle-001"
+
+    instruction_status: "ready_for_handoff"
+
+    evidence_refs:
+      - record_type: "multi_beneficiary_allocation_plan"
+        record_id: "multi-beneficiary-allocation-plan-2026-0001"
+        relation: "supports_allocation"
+        verified: true
+        description: "The approved plan assigns 28,500 JPY to person-a."
+
+      - record_type: "beneficiary_endpoint"
+        record_id: "endpoint-bundle-001"
+        relation: "supports_endpoint"
+        verified: true
+        description: "The beneficiary endpoint has been verified."
+
+      - record_type: "identity_record"
+        record_id: "identity-bundle-001"
+        relation: "supports_identity"
+        verified: true
+        description: "The beneficiary identity has been verified."
+
+    explanation: >-
+      The full approved allocation is ready for handoff. No active holdback
+      applies to this beneficiary.
+
+  - instruction_id: "settlement-instruction-person-b"
+    beneficiary_id: "person-b"
+    beneficiary_type: "human"
+    structural_role: "derivative"
+    settlement_basis: "approved_holdback_release"
+    source_plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+
+    holdback_release_ref:
+      holdback_ledger_id: "dispute-holdback-ledger-2026-0001"
+      holdback_id: "holdback-entry-001"
+      release_event_id: "release-event-001"
+      released_amount: 14000
+      approval_receipt_id: "dispute-review-receipt-001"
+
+    planned_amount: 19000
+    settlement_amount: 14000
+    current_held_amount: 5000
+    returned_to_pool_amount: 0
+
+    endpoint:
+      endpoint_id: "endpoint-person-b"
+      endpoint_type: "bank_account_token"
+      verification_status: "verified"
+      routing_reference: "tokenized-bank-route-person-b"
+      raw_credentials_included: false
+
+    compliance:
+      identity_status: "verified"
+      tax_boundary: "cleared"
+      employment_boundary: "independent_beneficiary"
+      currency_allowed: true
+      withholding_amount: 0
+      review_record_ids:
+        - "tax-review-bundle-001"
+        - "employment-review-bundle-001"
+
+    instruction_status: "ready_for_handoff"
+
+    evidence_refs:
+      - record_type: "multi_beneficiary_allocation_plan"
+        record_id: "multi-beneficiary-allocation-plan-2026-0001"
+        relation: "supports_allocation"
+        verified: true
+        description: "The source plan assigns 19,000 JPY to person-b."
+
+      - record_type: "dispute_holdback_ledger"
+        record_id: "dispute-holdback-ledger-2026-0001"
+        relation: "supports_holdback_release"
+        verified: true
+        description: >-
+          Fourteen thousand JPY has been released, while five thousand JPY
+          remains held.
+
+      - record_type: "beneficiary_endpoint"
+        record_id: "endpoint-bundle-001"
+        relation: "supports_endpoint"
+        verified: true
+        description: "The beneficiary endpoint has been verified."
+
+    explanation: >-
+      Only the approved 14,000 JPY release is included. The remaining
+      5,000 JPY is excluded from settlement and remains held.
+
+  - instruction_id: "settlement-instruction-person-c"
+    beneficiary_id: "person-c"
+    beneficiary_type: "human"
+    structural_role: "supporting_contributor"
+    settlement_basis: "approved_allocation_plan"
+    source_plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+
+    planned_amount: 47500
+    settlement_amount: 47500
+    current_held_amount: 0
+    returned_to_pool_amount: 0
+
+    endpoint:
+      endpoint_id: "endpoint-person-c"
+      endpoint_type: "bank_account_token"
+      verification_status: "verified"
+      routing_reference: "tokenized-bank-route-person-c"
+      raw_credentials_included: false
+
+    compliance:
+      identity_status: "verified"
+      tax_boundary: "cleared"
+      employment_boundary: "independent_beneficiary"
+      currency_allowed: true
+      withholding_amount: 0
+      review_record_ids:
+        - "tax-review-bundle-001"
+        - "employment-review-bundle-001"
+
+    instruction_status: "ready_for_handoff"
+
+    evidence_refs:
+      - record_type: "multi_beneficiary_allocation_plan"
+        record_id: "multi-beneficiary-allocation-plan-2026-0001"
+        relation: "supports_allocation"
+        verified: true
+        description: "The approved plan assigns 47,500 JPY to person-c."
+
+      - record_type: "beneficiary_endpoint"
+        record_id: "endpoint-bundle-001"
+        relation: "supports_endpoint"
+        verified: true
+        description: "The beneficiary endpoint has been verified."
+
+    explanation: >-
+      The full approved allocation is ready for handoff.
+
+  - instruction_id: "settlement-instruction-community-fund"
+    beneficiary_id: "community-fund-001"
+    beneficiary_type: "community_fund"
+    structural_role: "community_fund"
+    settlement_basis: "approved_allocation_plan"
+    source_plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+
+    planned_amount: 1000
+    settlement_amount: 1000
+    current_held_amount: 0
+    returned_to_pool_amount: 0
+
+    endpoint:
+      endpoint_id: "endpoint-community-fund"
+      endpoint_type: "internal_ledger"
+      verification_status: "verified"
+      routing_reference: "community-fund-ledger-route"
+      raw_credentials_included: false
+
+    compliance:
+      identity_status: "verified"
+      tax_boundary: "not_applicable"
+      employment_boundary: "not_applicable"
+      currency_allowed: true
+      withholding_amount: 0
+      review_record_ids: []
+
+    instruction_status: "ready_for_handoff"
+
+    evidence_refs:
+      - record_type: "multi_beneficiary_allocation_plan"
+        record_id: "multi-beneficiary-allocation-plan-2026-0001"
+        relation: "supports_allocation"
+        verified: true
+        description: "The approved plan assigns 1,000 JPY to the community fund."
+
+      - record_type: "beneficiary_endpoint"
+        record_id: "endpoint-bundle-001"
+        relation: "supports_endpoint"
+        verified: true
+        description: "The internal community fund ledger has been verified."
+
+    explanation: >-
+      The approved community fund allocation is ready for internal-ledger
+      handoff.
+
+  - instruction_id: "settlement-instruction-platform"
+    beneficiary_id: "platform-operator-001"
+    beneficiary_type: "platform"
+    structural_role: "platform"
+    settlement_basis: "approved_allocation_plan"
+    source_plan_id: "multi-beneficiary-allocation-plan-2026-0001"
+
+    planned_amount: 4000
+    settlement_amount: 4000
+    current_held_amount: 0
+    returned_to_pool_amount: 0
+
+    endpoint:
+      endpoint_id: "endpoint-platform-operator"
+      endpoint_type: "internal_ledger"
+      verification_status: "verified"
+      routing_reference: "platform-operating-ledger-route"
+      raw_credentials_included: false
+
+    compliance:
+      identity_status: "verified"
+      tax_boundary: "cleared"
+      employment_boundary: "not_applicable"
+      currency_allowed: true
+      withholding_amount: 0
+      review_record_ids:
+        - "tax-review-bundle-001"
+
+    instruction_status: "ready_for_handoff"
+
+    evidence_refs:
+      - record_type: "multi_beneficiary_allocation_plan"
+        record_id: "multi-beneficiary-allocation-plan-2026-0001"
+        relation: "supports_allocation"
+        verified: true
+        description: "The approved plan assigns a 4,000 JPY platform fee."
+
+      - record_type: "beneficiary_endpoint"
+        record_id: "endpoint-bundle-001"
+        relation: "supports_endpoint"
+        verified: true
+        description: "The platform ledger endpoint has been verified."
+
+    explanation: >-
+      The policy-defined platform operating fee is ready for handoff.
+
+handoff_control:
+  handoff_authorized: true
+  handoff_executed: false
+  execution_prohibited_for_agent: true
+  authorized_target_id: "agentic-royalty-path-gateway-001"
+
+reconciliation:
+  status: "not_started"
+  expected_settlement_total: 95000
+  executed_total: 0
+  failed_total: 0
+  pending_total: 95000
+  settlement_receipt_ids: []
+
+audit_report:
+  audit_id: "royalty-audit-2026-0001"
+  generated_at: "2026-07-18T09:25:00+09:00"
+  status: "passed"
+
+  checks:
+    evidence_complete: true
+    amount_conservation_passed: true
+    holdback_excluded: true
+    endpoints_verified: true
+    compliance_boundaries_checked: true
+    human_approval_verified: true
+    autonomous_execution_disabled: true
+
+  findings: []
+
+approval:
+  human_review_required: true
+  status: "approved"
+  approver_id: "human-reviewer-001"
+  approval_receipt_id: "settlement-approval-receipt-001"
+  approved_at: "2026-07-18T09:28:00+09:00"
+
+handoff_status: "approved_for_handoff"
+
+notes:
+  - "This record contains settlement instructions but does not execute payment."
+  - "The remaining 5,000 JPY holdback is excluded from the settlement batch."
+  - "Raw bank account data and private payment credentials are not included."
+  - "Execution must be performed by the authorized handoff target."
+
+safety_boundary:
+  verified_allocation_required: true
+  active_holdback_exclusion_required: true
+  verified_endpoint_required: true
+  compliance_review_required: true
+  raw_payment_credentials_prohibited: true
+  autonomous_payment_prohibited: true
+  agent_self_approval_prohibited: true
+  human_approval_required: true
