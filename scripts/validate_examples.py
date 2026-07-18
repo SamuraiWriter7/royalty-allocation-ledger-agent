@@ -1526,22 +1526,53 @@ def main() -> int:
     print("All Royalty Allocation Ledger Agent examples are valid.")
     return 0
 
-ValidationTarget(
-    name="Dispute and Holdback Ledger",
-    schema_path=(
-        ROOT
-        / "schemas"
-        / "dispute-holdback-ledger.schema.json"
-    ),
-    example_path=(
-        ROOT
-        / "examples"
-        / "pass"
-        / "dispute-holdback-ledger.example.yaml"
-    ),
-    semantic_validator=validate_dispute_holdback_ledger,
-),
-
+def targets() -> list[Target]:
+    return [
+        Target(
+            "Allocation Ledger Record",
+            ROOT
+            / "schemas"
+            / "allocation-ledger-record.schema.json",
+            ROOT
+            / "examples"
+            / "pass"
+            / "allocation-ledger-record.example.yaml",
+            validate_v01,
+        ),
+        Target(
+            "Contribution Weight Resolution",
+            ROOT
+            / "schemas"
+            / "contribution-weight-resolution.schema.json",
+            ROOT
+            / "examples"
+            / "pass"
+            / "contribution-weight-resolution.example.yaml",
+            validate_v02,
+        ),
+        Target(
+            "Multi-Beneficiary Allocation Plan",
+            ROOT
+            / "schemas"
+            / "multi-beneficiary-allocation-plan.schema.json",
+            ROOT
+            / "examples"
+            / "pass"
+            / "multi-beneficiary-allocation-plan.example.yaml",
+            validate_v03,
+        ),
+        Target(
+            "Dispute and Holdback Ledger",
+            ROOT
+            / "schemas"
+            / "dispute-holdback-ledger.schema.json",
+            ROOT
+            / "examples"
+            / "pass"
+            / "dispute-holdback-ledger.example.yaml",
+            validate_dispute_holdback_ledger,
+        ),
+    ]
 
 if __name__ == "__main__":
     sys.exit(main())
