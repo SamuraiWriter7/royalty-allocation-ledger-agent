@@ -1443,28 +1443,150 @@ def targets() -> list[Target]:
         Target(
             "Allocation Ledger Record",
             ROOT / "schemas" / "allocation-ledger-record.schema.json",
-            ROOT / "examples" / "pass" / "allocation-ledger-record.example.yaml",
+            ROOT
+            / "examples"
+            / "pass"
+            / "allocation-ledger-record.example.yaml",
             validate_v01,
         ),
         Target(
             "Contribution Weight Resolution",
-            ROOT / "schemas" / "contribution-weight-resolution.schema.json",
-            ROOT / "examples" / "pass" / "contribution-weight-resolution.example.yaml",
+            ROOT
+            / "schemas"
+            / "contribution-weight-resolution.schema.json",
+            ROOT
+            / "examples"
+            / "pass"
+            / "contribution-weight-resolution.example.yaml",
             validate_v02,
         ),
         Target(
             "Multi-Beneficiary Allocation Plan",
-            ROOT / "schemas" / "multi-beneficiary-allocation-plan.schema.json",
-            ROOT / "examples" / "pass" / "multi-beneficiary-allocation-plan.example.yaml",
+            ROOT
+            / "schemas"
+            / "multi-beneficiary-allocation-plan.schema.json",
+            ROOT
+            / "examples"
+            / "pass"
+            / "multi-beneficiary-allocation-plan.example.yaml",
             validate_v03,
         ),
         Target(
             "Dispute and Holdback Ledger",
-            ROOT / "schemas" / "dispute-holdback-ledger.schema.json",
-            ROOT / "examples" / "pass" / "dispute-holdback-ledger.example.yaml",
+            ROOT
+            / "schemas"
+            / "dispute-holdback-ledger.schema.json",
+            ROOT
+            / "examples"
+            / "pass"
+            / "dispute-holdback-ledger.example.yaml",
             validate_dispute_holdback_ledger,
         ),
     ]
+
+
+def validate_target(target: Target) -> list[str]:
+    """Validate one schema/example pair."""
+
+    if not target.schema.exists():
+        return [
+            f"[fatal] Schema not found: "
+            f"{target.schema.relative_to(ROOT)}"
+        ]
+
+    if not target.example.exists():
+        return [
+            f"[fatal] Example not found: "
+            f"{target.example.relative_to(ROOT)}"
+        ]
+
+    try:
+        schema = load(target.schema)
+    except Exception as error:
+        return [
+            f"[fatal] Failed to load schema "
+            f"{target.schema.relative_to(ROOT)}: "
+            f"{type(error).__name__}: {error}"
+        ]
+
+    try:
+        document = load(target.example)
+    except Exception as error:
+        return [
+            f"[fatal] Failed to load example "
+            f"{target.example.relative_to(ROOT)}: "
+            f"{type(error).__name__}: {error}"
+        ]
+
+    if not isinstance(schema, dict):
+        return [
+            f"[fatal] Schema root must be an object: "
+            f"{target.schema.relative_to(ROOT)}"
+        ]
+
+    if not isinstance(document, dict):
+        return [
+            f"[fatal] Example root must be an object: "
+            f"{target.example.relative_to(ROOT)}"
+        ]
+
+    try:
+        Draft202012Validator.check_schema(schema)
+    except Exception as error:
+        return [
+            f"[fatal] Invalid JSON Schema "
+            f"{target.schema.relative_to(ROOT)}: "
+            f"{type(error).__name__}: {error}"
+        ]
+
+    errors = schema_errors(document, schema)
+
+    if not errors:
+        errors.extend(target.validate(document))
+
+    return errors
+
+
+def main() -> int:
+    """Validate all repository examples."""
+
+    print("=== Royalty Allocation Ledger Agent Validation ===")
+    print()
+
+    failed = False
+
+    for target in targets():
+        print(f"[validate] {target.name}")
+        print(f"  schema : {target.schema.relative_to(ROOT)}")
+        print(f"  example: {target.example.relative_to(ROOT)}")
+
+        try:
+            errors = validate_target(target)
+        except Exception as error:
+            errors = [
+                f"[fatal] {type(error).__name__}: {error}"
+            ]
+
+        if errors:
+            failed = True
+
+            for error in errors:
+                print(error)
+        else:
+            print("[schema-ok]")
+            print("[semantic-ok]")
+
+        print()
+
+    if failed:
+        print("Validation failed.")
+        return 1
+
+    print(
+        "All Royalty Allocation Ledger Agent examples are valid."
+    )
+    return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
