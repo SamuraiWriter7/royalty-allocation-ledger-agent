@@ -875,6 +875,566 @@ def validate_v03(document: dict[str, Any]) -> list[str]:
     )
     return errors
 
+# ---------------------------------------------------------------------------
+# v0.4 — Dispute and Holdback Ledger
+# ---------------------------------------------------------------------------
+
+
+def validate_dispute_holdback_ledger(
+    document: dict[str, Any],
+) -> list[str]:
+    """Validate Dispute and Holdback Ledger semantics."""
+
+    errors: list[str] = []
+    source_ids = declared_source_ids(document)
+
+    source_context = document.get("source_context", {})
+    source_plan_id = str(
+        source_context.get("allocation_plan_id")
+    )
+
+    dispute_ids: set[str] = set()
+    dispute_records: dict[str, dict[str, Any]] = {}
+    affected_beneficiary_ids: set[str] = set()
+
+    open_dispute_count = 0
+    resolved_dispute_count = 0
+
+    open_statuses = {
+        "open",
+        "evidence_requested",
+        "under_review",
+        "partially_resolved",
+        "expired",
+    }
+
+    resolved_statuses = {
+        "resolved",
+        "rejected",
+    }
+
+    for index, dispute in enumerate(
+        document.get("dispute_cases", [])
+    ):
+        prefix = f"dispute_cases[{index}]"
+
+        dispute_id = str(dispute.get("dispute_id"))
+        beneficiary_id = str(
+            dispute.get("affected_beneficiary_id")
+        )
+
+        if dispute_id in dispute_ids:
+            errors.append(
+                f"[semantic-error] {prefix}.dispute_id: "
+                f"duplicate dispute '{dispute_id}'"
+            )
+
+        dispute_ids.add(dispute_id)
+        dispute_records[dispute_id] = dispute
+        affected_beneficiary_ids.add(beneficiary_id)
+
+        allocation_ref = dispute.get(
+            "affected_allocation_ref",
+            {},
+        )
+
+        referenced_plan_id = str(
+            allocation_ref.get("plan_id")
+        )
+
+        referenced_beneficiary_id = str(
+            allocation_ref.get("beneficiary_id")
+        )
+
+        if referenced_plan_id != source_plan_id:
+            errors.append(
+                f"[semantic-error] "
+                f"{prefix}.affected_allocation_ref.plan_id: "
+                "must match source_context.allocation_plan_id"
+            )
+
+        if referenced_beneficiary_id != beneficiary_id:
+            errors.append(
+                f"[semantic-error] "
+                f"{prefix}.affected_allocation_ref.beneficiary_id: "
+                "must match affected_beneficiary_id"
+            )
+
+        original_reserved = decimal_value(
+            allocation_ref.get(
+                "original_reserved_amount",
+                0,
+            ),
+            (
+                f"{prefix}.affected_allocation_ref."
+                "original_reserved_amount"
+            ),
+        )
+
+        dispute_scope = dispute.get("dispute_scope", {})
+
+        disputed_amount = decimal_value(
+            dispute_scope.get("disputed_amount", 0),
+            f"{prefix}.dispute_scope.disputed_amount",
+        )
+
+        undisputed_amount = decimal_value(
+            dispute_scope.get("undisputed_amount", 0),
+            f"{prefix}.dispute_scope.undisputed_amount",
+        )
+
+        if original_reserved != (
+            disputed_amount + undisputed_amount
+        ):
+            errors.append(
+                f"[semantic-error] {prefix}.dispute_scope: "
+                "disputed_amount + undisputed_amount must equal "
+                "original_reserved_amount"
+            )
+
+        status = str(dispute.get("status"))
+
+        if status in open_statuses:
+            open_dispute_count += 1
+
+        if status in resolved_statuses:
+            resolved_dispute_count += 1
+
+        resolution = dispute.get("resolution")
+
+        if status in {
+            "partially_resolved",
+            "resolved",
+            "rejected",
+        }:
+            if not resolution:
+                errors.append(
+                    f"[semantic-error] {prefix}.resolution: "
+                    "resolution is required for the current status"
+                )
+            else:
+                released = decimal_value(
+                    resolution.get("released_amount", 0),
+                    f"{prefix}.resolution.released_amount",
+                )
+
+                continued = decimal_value(
+                    resolution.get(
+                        "continued_hold_amount",
+                        0,
+                    ),
+                    (
+                        f"{prefix}.resolution."
+                        "continued_hold_amount"
+                    ),
+                )
+
+                returned = decimal_value(
+                    resolution.get(
+                        "returned_to_pool_amount",
+                        0,
+                    ),
+                    (
+                        f"{prefix}.resolution."
+                        "returned_to_pool_amount"
+                    ),
+                )
+
+                if original_reserved != (
+                    released + continued + returned
+                ):
+                    errors.append(
+                        f"[semantic-error] {prefix}.resolution: "
+                        "released_amount + continued_hold_amount + "
+                        "returned_to_pool_amount must equal the "
+                        "original reserved amount"
+                    )
+
+        errors.extend(
+            validate_evidence_refs(
+                dispute.get("evidence_refs", []),
+                source_ids,
+                f"{prefix}.evidence_refs",
+            )
+        )
+
+    holdback_ids: set[str] = set()
+
+    source_reserved_total = Decimal("0")
+    correction_adjustment_total = Decimal("0")
+    effective_holdback_total = Decimal("0")
+    released_total = Decimal("0")
+    current_held_total = Decimal("0")
+    returned_to_pool_total = Decimal("0")
+
+    for index, holdback in enumerate(
+        document.get("holdback_entries", [])
+    ):
+        prefix = f"holdback_entries[{index}]"
+
+        holdback_id = str(holdback.get("holdback_id"))
+        dispute_id = str(holdback.get("dispute_id"))
+        beneficiary_id = str(
+            holdback.get("beneficiary_id")
+        )
+
+        if holdback_id in holdback_ids:
+            errors.append(
+                f"[semantic-error] {prefix}.holdback_id: "
+                f"duplicate holdback '{holdback_id}'"
+            )
+
+        holdback_ids.add(holdback_id)
+
+        if dispute_id not in dispute_records:
+            errors.append(
+                f"[semantic-error] {prefix}.dispute_id: "
+                f"unknown dispute '{dispute_id}'"
+            )
+        else:
+            dispute = dispute_records[dispute_id]
+
+            if (
+                beneficiary_id
+                != dispute.get("affected_beneficiary_id")
+            ):
+                errors.append(
+                    f"[semantic-error] {prefix}.beneficiary_id: "
+                    "must match the dispute beneficiary"
+                )
+
+        if str(holdback.get("source_plan_id")) != source_plan_id:
+            errors.append(
+                f"[semantic-error] {prefix}.source_plan_id: "
+                "must match source_context.allocation_plan_id"
+            )
+
+        source_reserved = decimal_value(
+            holdback.get("source_reserved_amount", 0),
+            f"{prefix}.source_reserved_amount",
+        )
+
+        correction_adjustment = decimal_value(
+            holdback.get("correction_adjustment", 0),
+            f"{prefix}.correction_adjustment",
+        )
+
+        effective_holdback = decimal_value(
+            holdback.get("effective_holdback_amount", 0),
+            f"{prefix}.effective_holdback_amount",
+        )
+
+        released = decimal_value(
+            holdback.get("released_amount", 0),
+            f"{prefix}.released_amount",
+        )
+
+        current_held = decimal_value(
+            holdback.get("current_held_amount", 0),
+            f"{prefix}.current_held_amount",
+        )
+
+        returned = decimal_value(
+            holdback.get("returned_to_pool_amount", 0),
+            f"{prefix}.returned_to_pool_amount",
+        )
+
+        if effective_holdback != (
+            source_reserved + correction_adjustment
+        ):
+            errors.append(
+                f"[semantic-error] "
+                f"{prefix}.effective_holdback_amount: "
+                "must equal source_reserved_amount + "
+                "correction_adjustment"
+            )
+
+        if effective_holdback != (
+            released + current_held + returned
+        ):
+            errors.append(
+                f"[semantic-error] {prefix}: "
+                "effective_holdback_amount must equal "
+                "released_amount + current_held_amount + "
+                "returned_to_pool_amount"
+            )
+
+        status = str(holdback.get("status"))
+
+        if status == "active_hold":
+            if current_held <= 0:
+                errors.append(
+                    f"[semantic-error] {prefix}.status: "
+                    "active_hold requires a positive held amount"
+                )
+
+        elif status == "partial_release":
+            if released <= 0 or current_held <= 0:
+                errors.append(
+                    f"[semantic-error] {prefix}.status: "
+                    "partial_release requires both released and "
+                    "currently held amounts"
+                )
+
+        elif status == "fully_released":
+            if current_held != 0 or released <= 0:
+                errors.append(
+                    f"[semantic-error] {prefix}.status: "
+                    "fully_released requires zero current hold and "
+                    "a positive released amount"
+                )
+
+        elif status == "returned_to_pool":
+            if current_held != 0 or returned <= 0:
+                errors.append(
+                    f"[semantic-error] {prefix}.status: "
+                    "returned_to_pool requires zero current hold and "
+                    "a positive returned amount"
+                )
+
+        release_event_total = Decimal("0")
+        pool_return_event_total = Decimal("0")
+
+        for event_index, event in enumerate(
+            holdback.get("release_events", [])
+        ):
+            event_prefix = (
+                f"{prefix}.release_events[{event_index}]"
+            )
+
+            event_amount = decimal_value(
+                event.get("amount", 0),
+                f"{event_prefix}.amount",
+            )
+
+            destination = event.get("destination")
+
+            if destination == "beneficiary_allocation":
+                release_event_total += event_amount
+
+            elif destination == "unallocated_pool":
+                pool_return_event_total += event_amount
+
+            errors.extend(
+                validate_evidence_refs(
+                    event.get("evidence_refs", []),
+                    source_ids,
+                    f"{event_prefix}.evidence_refs",
+                )
+            )
+
+        if release_event_total != released:
+            errors.append(
+                f"[semantic-error] {prefix}.release_events: "
+                "beneficiary release event total must equal "
+                "released_amount"
+            )
+
+        if pool_return_event_total != returned:
+            errors.append(
+                f"[semantic-error] {prefix}.release_events: "
+                "pool return event total must equal "
+                "returned_to_pool_amount"
+            )
+
+        errors.extend(
+            validate_evidence_refs(
+                holdback.get("evidence_refs", []),
+                source_ids,
+                f"{prefix}.evidence_refs",
+            )
+        )
+
+        if dispute_id in dispute_records:
+            resolution = dispute_records[
+                dispute_id
+            ].get("resolution")
+
+            if resolution:
+                resolution_released = decimal_value(
+                    resolution.get("released_amount", 0),
+                    (
+                        f"dispute {dispute_id} "
+                        "resolution.released_amount"
+                    ),
+                )
+
+                resolution_held = decimal_value(
+                    resolution.get(
+                        "continued_hold_amount",
+                        0,
+                    ),
+                    (
+                        f"dispute {dispute_id} "
+                        "resolution.continued_hold_amount"
+                    ),
+                )
+
+                resolution_returned = decimal_value(
+                    resolution.get(
+                        "returned_to_pool_amount",
+                        0,
+                    ),
+                    (
+                        f"dispute {dispute_id} "
+                        "resolution.returned_to_pool_amount"
+                    ),
+                )
+
+                if released != resolution_released:
+                    errors.append(
+                        f"[semantic-error] {prefix}.released_amount: "
+                        "must match dispute resolution"
+                    )
+
+                if current_held != resolution_held:
+                    errors.append(
+                        f"[semantic-error] "
+                        f"{prefix}.current_held_amount: "
+                        "must match dispute resolution"
+                    )
+
+                if returned != resolution_returned:
+                    errors.append(
+                        f"[semantic-error] "
+                        f"{prefix}.returned_to_pool_amount: "
+                        "must match dispute resolution"
+                    )
+
+        source_reserved_total += source_reserved
+        correction_adjustment_total += correction_adjustment
+        effective_holdback_total += effective_holdback
+        released_total += released
+        current_held_total += current_held
+        returned_to_pool_total += returned
+
+    totals = document.get("totals", {})
+
+    total_checks = [
+        (
+            "source_reserved_total",
+            source_reserved_total,
+        ),
+        (
+            "correction_adjustment_total",
+            correction_adjustment_total,
+        ),
+        (
+            "effective_holdback_total",
+            effective_holdback_total,
+        ),
+        (
+            "released_to_allocation_total",
+            released_total,
+        ),
+        (
+            "current_held_total",
+            current_held_total,
+        ),
+        (
+            "returned_to_pool_total",
+            returned_to_pool_total,
+        ),
+    ]
+
+    for field_name, calculated in total_checks:
+        declared = decimal_value(
+            totals.get(field_name, 0),
+            f"totals.{field_name}",
+        )
+
+        if declared != calculated:
+            errors.append(
+                f"[semantic-error] totals.{field_name}: "
+                f"declared {declared}, calculated {calculated}"
+            )
+
+    declared_affected_count = int(
+        totals.get("affected_beneficiary_count", 0)
+    )
+
+    if declared_affected_count != len(
+        affected_beneficiary_ids
+    ):
+        errors.append(
+            "[semantic-error] "
+            "totals.affected_beneficiary_count: "
+            f"declared {declared_affected_count}, "
+            f"calculated {len(affected_beneficiary_ids)}"
+        )
+
+    declared_open_count = int(
+        totals.get("open_dispute_count", 0)
+    )
+
+    if declared_open_count != open_dispute_count:
+        errors.append(
+            "[semantic-error] totals.open_dispute_count: "
+            f"declared {declared_open_count}, "
+            f"calculated {open_dispute_count}"
+        )
+
+    declared_resolved_count = int(
+        totals.get("resolved_dispute_count", 0)
+    )
+
+    if declared_resolved_count != resolved_dispute_count:
+        errors.append(
+            "[semantic-error] totals.resolved_dispute_count: "
+            f"declared {declared_resolved_count}, "
+            f"calculated {resolved_dispute_count}"
+        )
+
+    if effective_holdback_total != (
+        released_total
+        + current_held_total
+        + returned_to_pool_total
+    ):
+        errors.append(
+            "[semantic-error] totals: effective holdback must equal "
+            "released + currently held + returned to pool"
+        )
+
+    errors.extend(
+        validate_approval_state(
+            document,
+            "ledger_status",
+        )
+    )
+
+    errors.extend(
+        validate_required_true_fields(
+            document.get("review_control", {}),
+            [
+                "partial_processing_allowed",
+                "unaffected_allocations_may_proceed",
+                "automatic_dispute_resolution_prohibited",
+            ],
+            "review_control",
+        )
+    )
+
+    errors.extend(
+        validate_required_true_fields(
+            document.get("safety_boundary", {}),
+            [
+                "evidence_required",
+                "dispute_scope_required",
+                "global_freeze_without_scope_prohibited",
+                "automatic_dispute_resolution_prohibited",
+                (
+                    "held_amount_redistribution_without_"
+                    "approval_prohibited"
+                ),
+                "autonomous_payment_prohibited",
+                "human_approval_required",
+            ],
+            "safety_boundary",
+        )
+    )
+
+    return errors
+
 
 # Runner -------------------------------------------------------------------
 
@@ -965,6 +1525,22 @@ def main() -> int:
 
     print("All Royalty Allocation Ledger Agent examples are valid.")
     return 0
+
+ValidationTarget(
+    name="Dispute and Holdback Ledger",
+    schema_path=(
+        ROOT
+        / "schemas"
+        / "dispute-holdback-ledger.schema.json"
+    ),
+    example_path=(
+        ROOT
+        / "examples"
+        / "pass"
+        / "dispute-holdback-ledger.example.yaml"
+    ),
+    semantic_validator=validate_dispute_holdback_ledger,
+),
 
 
 if __name__ == "__main__":
