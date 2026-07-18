@@ -7,6 +7,7 @@ Supported specifications:
 - v0.2 Contribution Weight Resolution
 - v0.3 Multi-Beneficiary Allocation Plan
 - v0.4 Dispute and Holdback Ledger
+- v0.5 Settlement Handoff and Royalty Audit
 
 Validation layers:
 1. JSON Schema validation
@@ -2054,6 +2055,662 @@ validate_dispute_holdback_ledger = validate_v04
 
 
 # ---------------------------------------------------------------------------
+# v0.5 — Settlement Handoff and Royalty Audit
+# ---------------------------------------------------------------------------
+
+
+def validate_v05(
+    document: dict[str, Any],
+) -> list[str]:
+    """Validate Settlement Handoff and Royalty Audit semantics."""
+
+    errors: list[str] = []
+    source_ids = declared_source_ids(document)
+
+    source_context = document.get("source_context", {})
+    allocation_plan_id = str(
+        source_context.get("allocation_plan_id", "")
+    )
+    holdback_ledger_id = str(
+        source_context.get("holdback_ledger_id", "")
+    )
+
+    settlement_policy_id = str(
+        source_context.get("settlement_policy_id", "")
+    )
+
+    if settlement_policy_id not in source_ids:
+        errors.append(
+            "[semantic-error] source_context.settlement_policy_id: "
+            "must be declared in source_context.source_records"
+        )
+
+    batch = document.get("settlement_batch", {})
+    handoff_target = batch.get("handoff_target", {})
+
+    if not isinstance(handoff_target, dict):
+        handoff_target = {}
+
+    handoff_target_id = str(
+        handoff_target.get("target_id", "")
+    )
+
+    if handoff_target.get("verification_status") != "verified":
+        errors.append(
+            "[semantic-error] settlement_batch.handoff_target."
+            "verification_status: must be verified"
+        )
+
+    instruction_ids: set[str] = set()
+    beneficiary_ids: set[str] = set()
+
+    planned_total = Decimal("0")
+    settlement_total = Decimal("0")
+    held_total = Decimal("0")
+    returned_total = Decimal("0")
+    released_holdback_total = Decimal("0")
+
+    instructions = document.get("payment_instructions", [])
+
+    if not isinstance(instructions, list):
+        return [
+            "[semantic-error] payment_instructions: must be an array"
+        ]
+
+    for index, instruction in enumerate(instructions):
+        prefix = f"payment_instructions[{index}]"
+
+        if not isinstance(instruction, dict):
+            errors.append(
+                f"[semantic-error] {prefix}: must be an object"
+            )
+            continue
+
+        instruction_id = str(
+            instruction.get("instruction_id", "")
+        )
+        beneficiary_id = str(
+            instruction.get("beneficiary_id", "")
+        )
+
+        errors.extend(
+            register_unique(
+                instruction_id,
+                instruction_ids,
+                f"{prefix}.instruction_id",
+                "instruction",
+            )
+        )
+
+        errors.extend(
+            register_unique(
+                beneficiary_id,
+                beneficiary_ids,
+                f"{prefix}.beneficiary_id",
+                "beneficiary instruction",
+            )
+        )
+
+        source_plan_id = str(
+            instruction.get("source_plan_id", "")
+        )
+
+        if source_plan_id != allocation_plan_id:
+            errors.append(
+                f"[semantic-error] {prefix}.source_plan_id: "
+                "must match source_context.allocation_plan_id"
+            )
+
+        planned_amount = decimal_value(
+            instruction.get("planned_amount", 0),
+            f"{prefix}.planned_amount",
+        )
+        settlement_amount = decimal_value(
+            instruction.get("settlement_amount", 0),
+            f"{prefix}.settlement_amount",
+        )
+        current_held_amount = decimal_value(
+            instruction.get("current_held_amount", 0),
+            f"{prefix}.current_held_amount",
+        )
+        returned_to_pool_amount = decimal_value(
+            instruction.get(
+                "returned_to_pool_amount",
+                0,
+            ),
+            f"{prefix}.returned_to_pool_amount",
+        )
+
+        if planned_amount != (
+            settlement_amount
+            + current_held_amount
+            + returned_to_pool_amount
+        ):
+            errors.append(
+                f"[semantic-error] {prefix}: "
+                "planned_amount must equal settlement_amount + "
+                "current_held_amount + returned_to_pool_amount"
+            )
+
+        settlement_basis = str(
+            instruction.get("settlement_basis", "")
+        )
+        release_ref = instruction.get(
+            "holdback_release_ref"
+        )
+
+        if settlement_basis == "approved_holdback_release":
+            if not isinstance(release_ref, dict):
+                errors.append(
+                    f"[semantic-error] "
+                    f"{prefix}.holdback_release_ref: "
+                    "required for approved_holdback_release"
+                )
+            else:
+                referenced_ledger_id = str(
+                    release_ref.get(
+                        "holdback_ledger_id",
+                        "",
+                    )
+                )
+                released_amount = decimal_value(
+                    release_ref.get("released_amount", 0),
+                    (
+                        f"{prefix}.holdback_release_ref."
+                        "released_amount"
+                    ),
+                )
+
+                if referenced_ledger_id != holdback_ledger_id:
+                    errors.append(
+                        f"[semantic-error] "
+                        f"{prefix}.holdback_release_ref."
+                        "holdback_ledger_id: must match "
+                        "source_context.holdback_ledger_id"
+                    )
+
+                if released_amount != settlement_amount:
+                    errors.append(
+                        f"[semantic-error] "
+                        f"{prefix}.holdback_release_ref."
+                        "released_amount: must equal settlement_amount"
+                    )
+
+                released_holdback_total += released_amount
+
+        elif isinstance(release_ref, dict):
+            errors.append(
+                f"[semantic-error] {prefix}.holdback_release_ref: "
+                "must only be used with approved_holdback_release"
+            )
+
+        endpoint = instruction.get("endpoint", {})
+        compliance = instruction.get("compliance", {})
+
+        if not isinstance(endpoint, dict):
+            endpoint = {}
+
+        if not isinstance(compliance, dict):
+            compliance = {}
+
+        instruction_status = str(
+            instruction.get("instruction_status", "")
+        )
+
+        if endpoint.get("raw_credentials_included") is not False:
+            errors.append(
+                f"[semantic-error] "
+                f"{prefix}.endpoint.raw_credentials_included: "
+                "must be false"
+            )
+
+        if instruction_status == "ready_for_handoff":
+            if settlement_amount <= 0:
+                errors.append(
+                    f"[semantic-error] {prefix}.settlement_amount: "
+                    "ready instruction requires a positive amount"
+                )
+
+            if endpoint.get("verification_status") != "verified":
+                errors.append(
+                    f"[semantic-error] "
+                    f"{prefix}.endpoint.verification_status: "
+                    "ready instruction requires a verified endpoint"
+                )
+
+            if compliance.get("identity_status") != "verified":
+                errors.append(
+                    f"[semantic-error] "
+                    f"{prefix}.compliance.identity_status: "
+                    "ready instruction requires verified identity"
+                )
+
+            if compliance.get("currency_allowed") is not True:
+                errors.append(
+                    f"[semantic-error] "
+                    f"{prefix}.compliance.currency_allowed: "
+                    "must be true for a ready instruction"
+                )
+
+            if compliance.get("tax_boundary") == "review_required":
+                errors.append(
+                    f"[semantic-error] "
+                    f"{prefix}.compliance.tax_boundary: "
+                    "must be resolved before handoff"
+                )
+
+            if (
+                compliance.get("employment_boundary")
+                == "review_required"
+            ):
+                errors.append(
+                    f"[semantic-error] "
+                    f"{prefix}.compliance.employment_boundary: "
+                    "must be resolved before handoff"
+                )
+
+            if instruction.get("block_reasons"):
+                errors.append(
+                    f"[semantic-error] {prefix}.block_reasons: "
+                    "ready instruction must not contain block reasons"
+                )
+
+        elif instruction_status == "blocked":
+            if settlement_amount != 0:
+                errors.append(
+                    f"[semantic-error] {prefix}.settlement_amount: "
+                    "blocked instruction must have zero amount"
+                )
+
+            if not instruction.get("block_reasons"):
+                errors.append(
+                    f"[semantic-error] {prefix}.block_reasons: "
+                    "blocked instruction requires at least one reason"
+                )
+
+        elif instruction_status == "excluded":
+            if settlement_amount != 0:
+                errors.append(
+                    f"[semantic-error] {prefix}.settlement_amount: "
+                    "excluded instruction must have zero amount"
+                )
+
+        errors.extend(
+            validate_evidence_refs(
+                instruction.get("evidence_refs", []),
+                source_ids,
+                f"{prefix}.evidence_refs",
+            )
+        )
+
+        planned_total += planned_amount
+        settlement_total += settlement_amount
+        held_total += current_held_amount
+        returned_total += returned_to_pool_amount
+
+    approved_allocation_total = decimal_value(
+        batch.get("approved_allocation_total", 0),
+        "settlement_batch.approved_allocation_total",
+    )
+    declared_released_total = decimal_value(
+        batch.get("released_holdback_total", 0),
+        "settlement_batch.released_holdback_total",
+    )
+    declared_held_total = decimal_value(
+        batch.get("current_holdback_total", 0),
+        "settlement_batch.current_holdback_total",
+    )
+    declared_returned_total = decimal_value(
+        batch.get("returned_to_pool_total", 0),
+        "settlement_batch.returned_to_pool_total",
+    )
+    declared_ready_total = decimal_value(
+        batch.get("settlement_ready_total", 0),
+        "settlement_batch.settlement_ready_total",
+    )
+    declared_instruction_count = int(
+        batch.get("instruction_count", 0)
+    )
+
+    if planned_total != approved_allocation_total:
+        errors.append(
+            "[semantic-error] settlement_batch."
+            "approved_allocation_total: "
+            f"declared {approved_allocation_total}, "
+            f"calculated {planned_total}"
+        )
+
+    if released_holdback_total != declared_released_total:
+        errors.append(
+            "[semantic-error] settlement_batch."
+            "released_holdback_total: "
+            f"declared {declared_released_total}, "
+            f"calculated {released_holdback_total}"
+        )
+
+    if held_total != declared_held_total:
+        errors.append(
+            "[semantic-error] settlement_batch."
+            "current_holdback_total: "
+            f"declared {declared_held_total}, "
+            f"calculated {held_total}"
+        )
+
+    if returned_total != declared_returned_total:
+        errors.append(
+            "[semantic-error] settlement_batch."
+            "returned_to_pool_total: "
+            f"declared {declared_returned_total}, "
+            f"calculated {returned_total}"
+        )
+
+    if settlement_total != declared_ready_total:
+        errors.append(
+            "[semantic-error] settlement_batch."
+            "settlement_ready_total: "
+            f"declared {declared_ready_total}, "
+            f"calculated {settlement_total}"
+        )
+
+    if approved_allocation_total != (
+        declared_ready_total
+        + declared_held_total
+        + declared_returned_total
+    ):
+        errors.append(
+            "[semantic-error] settlement_batch: "
+            "approved allocation must equal settlement ready + "
+            "current holdback + returned to pool"
+        )
+
+    if declared_instruction_count != len(instructions):
+        errors.append(
+            "[semantic-error] settlement_batch.instruction_count: "
+            f"declared {declared_instruction_count}, "
+            f"calculated {len(instructions)}"
+        )
+
+    handoff_control = document.get(
+        "handoff_control",
+        {},
+    )
+
+    if not isinstance(handoff_control, dict):
+        handoff_control = {}
+
+    authorized_target_id = str(
+        handoff_control.get(
+            "authorized_target_id",
+            "",
+        )
+    )
+
+    if authorized_target_id != handoff_target_id:
+        errors.append(
+            "[semantic-error] handoff_control.authorized_target_id: "
+            "must match settlement_batch.handoff_target.target_id"
+        )
+
+    if (
+        handoff_control.get(
+            "execution_prohibited_for_agent"
+        )
+        is not True
+    ):
+        errors.append(
+            "[semantic-error] handoff_control."
+            "execution_prohibited_for_agent: must remain true"
+        )
+
+    reconciliation = document.get("reconciliation", {})
+
+    if not isinstance(reconciliation, dict):
+        reconciliation = {}
+
+    expected_total = decimal_value(
+        reconciliation.get(
+            "expected_settlement_total",
+            0,
+        ),
+        "reconciliation.expected_settlement_total",
+    )
+    executed_total = decimal_value(
+        reconciliation.get("executed_total", 0),
+        "reconciliation.executed_total",
+    )
+    failed_total = decimal_value(
+        reconciliation.get("failed_total", 0),
+        "reconciliation.failed_total",
+    )
+    pending_total = decimal_value(
+        reconciliation.get("pending_total", 0),
+        "reconciliation.pending_total",
+    )
+
+    if expected_total != declared_ready_total:
+        errors.append(
+            "[semantic-error] reconciliation."
+            "expected_settlement_total: must equal "
+            "settlement_batch.settlement_ready_total"
+        )
+
+    if expected_total != (
+        executed_total
+        + failed_total
+        + pending_total
+    ):
+        errors.append(
+            "[semantic-error] reconciliation: "
+            "expected total must equal executed + failed + pending"
+        )
+
+    reconciliation_status = str(
+        reconciliation.get("status", "")
+    )
+
+    if reconciliation_status == "not_started":
+        if executed_total != 0 or failed_total != 0:
+            errors.append(
+                "[semantic-error] reconciliation: "
+                "not_started requires zero executed and failed totals"
+            )
+
+        if pending_total != expected_total:
+            errors.append(
+                "[semantic-error] reconciliation.pending_total: "
+                "not_started requires all expected funds to be pending"
+            )
+
+        if reconciliation.get("settlement_receipt_ids"):
+            errors.append(
+                "[semantic-error] reconciliation."
+                "settlement_receipt_ids: must be empty before execution"
+            )
+
+    elif reconciliation_status == "completed":
+        if pending_total != 0:
+            errors.append(
+                "[semantic-error] reconciliation.pending_total: "
+                "completed reconciliation requires zero pending amount"
+            )
+
+        if not reconciliation.get("completed_at"):
+            errors.append(
+                "[semantic-error] reconciliation.completed_at: "
+                "required for completed reconciliation"
+            )
+
+    audit_report = document.get("audit_report", {})
+
+    if not isinstance(audit_report, dict):
+        audit_report = {}
+
+    audit_checks = audit_report.get("checks", {})
+
+    if not isinstance(audit_checks, dict):
+        audit_checks = {}
+
+    audit_status = str(
+        audit_report.get("status", "")
+    )
+
+    required_audit_checks = [
+        "evidence_complete",
+        "amount_conservation_passed",
+        "holdback_excluded",
+        "endpoints_verified",
+        "compliance_boundaries_checked",
+        "human_approval_verified",
+        "autonomous_execution_disabled",
+    ]
+
+    failed_audit_checks = [
+        field_name
+        for field_name in required_audit_checks
+        if audit_checks.get(field_name) is not True
+    ]
+
+    findings = audit_report.get("findings", [])
+
+    if not isinstance(findings, list):
+        findings = []
+
+    finding_severities = {
+        str(finding.get("severity", ""))
+        for finding in findings
+        if isinstance(finding, dict)
+    }
+
+    if audit_status == "passed":
+        if failed_audit_checks:
+            errors.append(
+                "[semantic-error] audit_report.status: "
+                "cannot be passed while an audit check is false"
+            )
+
+        if finding_severities & {"warning", "error"}:
+            errors.append(
+                "[semantic-error] audit_report.findings: "
+                "passed audit may only contain informational findings"
+            )
+
+    elif audit_status == "passed_with_warnings":
+        if "error" in finding_severities:
+            errors.append(
+                "[semantic-error] audit_report.findings: "
+                "passed_with_warnings must not contain errors"
+            )
+
+        if "warning" not in finding_severities:
+            errors.append(
+                "[semantic-error] audit_report.findings: "
+                "passed_with_warnings requires a warning finding"
+            )
+
+    elif audit_status == "failed":
+        if (
+            not failed_audit_checks
+            and "error" not in finding_severities
+        ):
+            errors.append(
+                "[semantic-error] audit_report.status: "
+                "failed audit requires a failed check or error finding"
+            )
+
+    approval = document.get("approval", {})
+
+    if not isinstance(approval, dict):
+        approval = {}
+
+    approval_status = str(
+        approval.get("status", "")
+    )
+    handoff_status = str(
+        document.get("handoff_status", "")
+    )
+
+    if handoff_status in {
+        "approved_for_handoff",
+        "handed_off",
+    }:
+        if approval_status != "approved":
+            errors.append(
+                "[semantic-error] handoff_status: "
+                "requires approved human review"
+            )
+
+        if audit_status not in {
+            "passed",
+            "passed_with_warnings",
+        }:
+            errors.append(
+                "[semantic-error] handoff_status: "
+                "requires a passing audit"
+            )
+
+        if handoff_control.get("handoff_authorized") is not True:
+            errors.append(
+                "[semantic-error] handoff_control."
+                "handoff_authorized: must be true"
+            )
+
+    if handoff_status == "handed_off":
+        if handoff_control.get("handoff_executed") is not True:
+            errors.append(
+                "[semantic-error] handoff_control.handoff_executed: "
+                "must be true when handoff_status is handed_off"
+            )
+
+        if not handoff_control.get("handoff_receipt_id"):
+            errors.append(
+                "[semantic-error] handoff_control.handoff_receipt_id: "
+                "required when handoff has occurred"
+            )
+
+        if not handoff_control.get("handed_off_at"):
+            errors.append(
+                "[semantic-error] handoff_control.handed_off_at: "
+                "required when handoff has occurred"
+            )
+
+    elif handoff_control.get("handoff_executed") is True:
+        errors.append(
+            "[semantic-error] handoff_control.handoff_executed: "
+            "may only be true when handoff_status is handed_off"
+        )
+
+    if approval_status == "approved":
+        approval_receipt_id = str(
+            approval.get("approval_receipt_id", "")
+        )
+
+        if approval_receipt_id not in source_ids:
+            errors.append(
+                "[semantic-error] approval.approval_receipt_id: "
+                "must be declared in source_context.source_records"
+            )
+
+    errors.extend(
+        validate_required_true_fields(
+            document.get("safety_boundary", {}),
+            [
+                "verified_allocation_required",
+                "active_holdback_exclusion_required",
+                "verified_endpoint_required",
+                "compliance_review_required",
+                "raw_payment_credentials_prohibited",
+                "autonomous_payment_prohibited",
+                "agent_self_approval_prohibited",
+                "human_approval_required",
+            ],
+            "safety_boundary",
+        )
+    )
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
 # Targets and execution
 # ---------------------------------------------------------------------------
 
@@ -2105,6 +2762,17 @@ def targets() -> list[Target]:
             / "pass"
             / "dispute-holdback-ledger.example.yaml",
             validate_v04,
+        ),
+        Target(
+            "Settlement Handoff and Royalty Audit",
+            ROOT
+            / "schemas"
+            / "settlement-handoff-record.schema.json",
+            ROOT
+            / "examples"
+            / "pass"
+            / "settlement-handoff-record.example.yaml",
+            validate_v05,
         ),
     ]
 
