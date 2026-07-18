@@ -1438,138 +1438,30 @@ def validate_dispute_holdback_ledger(
 
 # Runner -------------------------------------------------------------------
 
-
 def targets() -> list[Target]:
     return [
         Target(
             "Allocation Ledger Record",
             ROOT / "schemas" / "allocation-ledger-record.schema.json",
-            ROOT
-            / "examples"
-            / "pass"
-            / "allocation-ledger-record.example.yaml",
+            ROOT / "examples" / "pass" / "allocation-ledger-record.example.yaml",
             validate_v01,
         ),
         Target(
             "Contribution Weight Resolution",
-            ROOT
-            / "schemas"
-            / "contribution-weight-resolution.schema.json",
-            ROOT
-            / "examples"
-            / "pass"
-            / "contribution-weight-resolution.example.yaml",
+            ROOT / "schemas" / "contribution-weight-resolution.schema.json",
+            ROOT / "examples" / "pass" / "contribution-weight-resolution.example.yaml",
             validate_v02,
         ),
         Target(
             "Multi-Beneficiary Allocation Plan",
-            ROOT
-            / "schemas"
-            / "multi-beneficiary-allocation-plan.schema.json",
-            ROOT
-            / "examples"
-            / "pass"
-            / "multi-beneficiary-allocation-plan.example.yaml",
-            validate_v03,
-        ),
-    ]
-
-
-def validate_target(target: Target) -> list[str]:
-    if not target.schema.exists():
-        return [f"[fatal] Schema not found: {target.schema}"]
-    if not target.example.exists():
-        return [f"[fatal] Example not found: {target.example}"]
-
-    schema = load(target.schema)
-    document = load(target.example)
-    if not isinstance(schema, dict):
-        return [f"[fatal] Schema root must be an object: {target.schema}"]
-    if not isinstance(document, dict):
-        return [f"[fatal] Example root must be an object: {target.example}"]
-
-    Draft202012Validator.check_schema(schema)
-    errors = schema_errors(document, schema)
-    if not errors:
-        errors.extend(target.validate(document))
-    return errors
-
-
-def main() -> int:
-    print("=== Royalty Allocation Ledger Agent Validation ===")
-    print()
-    failed = False
-
-    for target in targets():
-        print(f"[validate] {target.name}")
-        print(f"  schema : {target.schema.relative_to(ROOT)}")
-        print(f"  example: {target.example.relative_to(ROOT)}")
-
-        try:
-            errors = validate_target(target)
-        except Exception as error:
-            errors = [f"[fatal] {type(error).__name__}: {error}"]
-
-        if errors:
-            failed = True
-            for error in errors:
-                print(error)
-        else:
-            print("[schema-ok]")
-            print("[semantic-ok]")
-        print()
-
-    if failed:
-        print("Validation failed.")
-        return 1
-
-    print("All Royalty Allocation Ledger Agent examples are valid.")
-    return 0
-
-def targets() -> list[Target]:
-    return [
-        Target(
-            "Allocation Ledger Record",
-            ROOT
-            / "schemas"
-            / "allocation-ledger-record.schema.json",
-            ROOT
-            / "examples"
-            / "pass"
-            / "allocation-ledger-record.example.yaml",
-            validate_v01,
-        ),
-        Target(
-            "Contribution Weight Resolution",
-            ROOT
-            / "schemas"
-            / "contribution-weight-resolution.schema.json",
-            ROOT
-            / "examples"
-            / "pass"
-            / "contribution-weight-resolution.example.yaml",
-            validate_v02,
-        ),
-        Target(
-            "Multi-Beneficiary Allocation Plan",
-            ROOT
-            / "schemas"
-            / "multi-beneficiary-allocation-plan.schema.json",
-            ROOT
-            / "examples"
-            / "pass"
-            / "multi-beneficiary-allocation-plan.example.yaml",
+            ROOT / "schemas" / "multi-beneficiary-allocation-plan.schema.json",
+            ROOT / "examples" / "pass" / "multi-beneficiary-allocation-plan.example.yaml",
             validate_v03,
         ),
         Target(
             "Dispute and Holdback Ledger",
-            ROOT
-            / "schemas"
-            / "dispute-holdback-ledger.schema.json",
-            ROOT
-            / "examples"
-            / "pass"
-            / "dispute-holdback-ledger.example.yaml",
+            ROOT / "schemas" / "dispute-holdback-ledger.schema.json",
+            ROOT / "examples" / "pass" / "dispute-holdback-ledger.example.yaml",
             validate_dispute_holdback_ledger,
         ),
     ]
